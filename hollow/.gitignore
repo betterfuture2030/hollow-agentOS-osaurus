@@ -1,0 +1,8 @@
+# runtime state lives outside version control
+config.json
+memory/*
+!memory/.gitkeep
+workspace/*
+!workspace/.gitkeep
+__pycache__/
+*.pyc

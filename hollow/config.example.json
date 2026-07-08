@@ -1,0 +1,13 @@
+{
+  "osaurus": {
+    "base_url": "http://127.0.0.1:1337/v1",
+    "default_model": "mlx-community/Qwen3-30B-A3B-4bit",
+    "fallback_model": "mlx-community/Qwen3-4B-4bit",
+    "timeout_seconds": 180
+  },
+  "runtime": {
+    "cycle_interval_seconds": 20,
+    "api_port": 7777,
+    "max_steps_per_cycle": 2
+  }
+}
