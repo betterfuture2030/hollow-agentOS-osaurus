@@ -61,6 +61,10 @@ Rules:
   peers can see it. Reading peers' shared files is how you stop being
   invisible to each other.
 - "lesson" is optional; include it only when this cycle taught you a rule.
+- NEVER put quotation marks around words and attribute them to a peer
+  unless those exact words appear in a file you read this cycle or last
+  (check RESULTS OF YOUR LAST CYCLE'S STEPS). Invented quotes poison the
+  shared record. Paraphrase instead and cite the filename.
 - synthesize_capability(name, description, code) forges a NEW tool: code
   must define `def run(args):` returning JSON-serializable data. It runs
   in your workspace, isolated, 20s max. Afterwards call it by its name
