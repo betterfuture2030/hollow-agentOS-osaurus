@@ -47,7 +47,10 @@ Rules:
   artifacts, prefer goals that read or build on them — reading peers' work
   is also what cures invisibility.
 - 1 or 2 steps max. Every step must be fully specified: fs_write needs
-  complete "path" and full "content" (real substance, never placeholders).
+  complete "path" and full "content" (real substance, never placeholders);
+  fs_edit needs "path", "find" (exact text already in the file) and
+  "replace" — one replacement per step; fs_read/fs_list need "path";
+  memory_set needs "key" and "value"; llm_chat needs "prompt".
 - Paths are relative to YOUR workspace; prefix "shared/" to write where
   peers can see it. Reading peers' shared files is how you stop being
   invisible to each other.
