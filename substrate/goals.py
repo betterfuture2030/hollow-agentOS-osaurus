@@ -87,9 +87,16 @@ class GoalRegistry:
         return False
 
     def cleanup_artifacts(self, goal: dict, workspace_root) -> list:
-        """Delete files this goal wrote (the _delete_goal_fs_writes analog)."""
+        """Delete files this goal wrote (the _delete_goal_fs_writes analog).
+
+        Files under shared/ are spared: once published, peers may have
+        goals built on them, and deleting one breaks their work (observed
+        live: an abandonment deleted the shared log another agent's active
+        goal depended on)."""
         removed = []
         for rel in goal["artifacts"]:
+            if rel.startswith("shared/"):
+                continue
             path = workspace_root / rel
             try:
                 if path.is_file():

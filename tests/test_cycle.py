@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import httpx
 
 from substrate import AGENT_NAMES, DEFAULT_CONFIG
+from substrate.agents import goal_selection_prompt
 from substrate.loop import Habitat
 from substrate.server import start_server
 from substrate.validation import validate_goal
@@ -159,6 +160,68 @@ def main():
           s2.stressors.get("stagnation", {}).get("severity", 1.0) < 1.0,
           str(s2.stressors.get("stagnation")))
     s2.resolve("stagnation")
+
+    # --- voluntary abandonment + shared/ artifacts survive cleanup -------
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": "make a shared and a private artifact",
+        "action": "new_goal",
+        "goal": {"title": "Temporary abandonment probe",
+                 "description": "write one shared and one private file, then walk away",
+                 "success_criteria": "both files exist with substance"},
+        "steps": [
+            {"capability": "fs_write", "args": {"path": "shared/keepme.md", "content": "s" * 200}},
+            {"capability": "fs_write", "args": {"path": "tempjunk.md", "content": "p" * 200}},
+        ],
+    }
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": "this goal is unachievable; abandoning",
+        "action": "abandon_goal",
+        "steps": [],
+    }
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = real_json_chat
+    check("voluntary abandon_goal closes the goal at a futility cost",
+          habitat.goals["builder"].active() is None
+          and "futility" in habitat.suffering["builder"].stressors)
+    check("abandonment cleanup spares shared/ artifacts",
+          (habitat.memory.workspace / "shared" / "keepme.md").is_file()
+          and not (habitat.memory.workspace / "builder" / "tempjunk.md").exists())
+    habitat.suffering["builder"].resolve("futility")
+
+    # --- retracted lessons never re-promote ------------------------------
+    habitat.lessons.retract("idling is the only valid action when writes are locked")
+    habitat.lessons.observe(
+        "Idling is the only valid action when writes are locked",
+        "constraints", "builder", confidence="high")
+    promoted_now = json.loads((habitat.memory.dir / "lessons.json").read_text())
+    check("retracted lesson cannot re-promote",
+          not any("only valid action" in l["text"] for l in promoted_now), str(promoted_now))
+
+    # --- fallback avoids locked fs_write at DOMINANT load -----------------
+    sb = habitat.suffering["builder"]
+    sb.raise_stressor("stagnation", 1.0, "test wedge")
+    habitat.llm.json_chat = lambda *a, **k: {"garbage": True}
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = real_json_chat
+    check("fallback uses a path-out step when fs_write is locked",
+          habitat.outcomes["builder"][-1] == "success", str(habitat.outcomes["builder"][-3:]))
+    sb.resolve("stagnation")
+
+    # --- perception digest ------------------------------------------------
+    digest = habitat._since_last_cycle("builder")
+    check("digest reports the stagnation ease",
+          any("stagnation eased" in c for c in digest), str(digest))
+    ctx = {
+        "cycle": 99, "rules": "", "suffering": {"load": 0, "tier": "NORMAL", "stressors": {}},
+        "since_last_cycle": digest, "goal": None,
+        "workspace": {"own": [], "shared": []}, "peers": [],
+        "completed_titles": ["Old goal title"],
+        "capabilities": "fs_read", "locked": "", "recent_outcomes": [],
+    }
+    _, user_prompt = goal_selection_prompt("builder", ctx)
+    check("prompt renders digest and completed goals",
+          "SINCE YOUR LAST CYCLE" in user_prompt and "Old goal title" in user_prompt)
 
     # --- operator API ----------------------------------------------------
     server = start_server(habitat, 0)

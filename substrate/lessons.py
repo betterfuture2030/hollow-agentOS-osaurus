@@ -31,6 +31,7 @@ class Lessons:
         self.memory = memory
         self.promoted_path = memory.dir / "lessons.json"
         self.candidates_path = memory.dir / "lessons_candidates.json"
+        self.retracted_path = memory.dir / "lessons_retracted.json"
         self._lock = threading.Lock()
 
     def _promoted(self):
@@ -39,12 +40,33 @@ class Lessons:
     def _candidates(self):
         return read_json(self.candidates_path, [])
 
+    def _retracted(self):
+        return read_json(self.retracted_path, [])
+
+    def retract(self, text: str) -> None:
+        """Operator veto: remove Jaccard-matches from promoted rules and
+        candidates, and block the lesson from ever re-promoting. Needed
+        because a false-but-observable lesson (e.g. one learned while the
+        substrate was malfunctioning) re-promotes from a single
+        high-confidence observation if merely deleted."""
+        with self._lock:
+            promoted = [l for l in self._promoted() if jaccard(l["text"], text) < JACCARD_THRESHOLD]
+            candidates = [c for c in self._candidates() if jaccard(c["text"], text) < JACCARD_THRESHOLD]
+            write_json(self.promoted_path, promoted)
+            write_json(self.candidates_path, candidates)
+            retracted = self._retracted()
+            retracted.append(text)
+            write_json(self.retracted_path, retracted)
+
     def observe(self, text: str, category: str, agent: str, confidence: str = "normal"):
         """Record an observation; returns the lesson if it promoted."""
         text = text.strip()
         if len(text) < 15:
             return None
         with self._lock:
+            for dead in self._retracted():
+                if jaccard(dead, text) >= JACCARD_THRESHOLD:
+                    return None  # operator-retracted; never re-promotes
             promoted = self._promoted()
             for lesson in promoted:
                 if jaccard(lesson["text"], text) >= JACCARD_THRESHOLD:

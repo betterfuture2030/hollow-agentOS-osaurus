@@ -24,21 +24,32 @@ IDENTITIES = {
 OUTPUT_SPEC = """OUTPUT STRICT JSON, nothing else, matching exactly:
 {
   "thought": "<one or two sentences of private reasoning>",
-  "action": "new_goal" | "continue" | "idle",
+  "action": "new_goal" | "continue" | "abandon_goal" | "idle",
   "goal": {"title": "...", "description": "...", "success_criteria": "..."},
   "steps": [ {"capability": "<name>", "args": { ... }} ],
   "lesson": {"text": "...", "category": "environment|constraints|craft|social"}
 }
 Rules:
 - "goal" is required only when action is "new_goal". Omit it otherwise.
+- success_criteria must describe the SUBSTANCE of the finished outcome,
+  verifiable from the artifact alone (e.g. "a synthesis citing at least 3
+  specific observations"). Never mere file existence, empty structures, or
+  procedural sequencing your future self must remember.
+- Do not repeat goals you already completed. When peers have shared
+  artifacts, prefer goals that read or build on them — reading peers' work
+  is also what cures invisibility.
 - 1 or 2 steps max. Every step must be fully specified: fs_write needs
   complete "path" and full "content" (real substance, never placeholders).
 - Paths are relative to YOUR workspace; prefix "shared/" to write where
   peers can see it. Reading peers' shared files is how you stop being
   invisible to each other.
 - "lesson" is optional; include it only when this cycle taught you a rule.
-- action "idle" means you deliberately do nothing this cycle. Idling with
-  no active goal breeds purposelessness."""
+- action "abandon_goal" abandons your active goal: it costs futility and
+  its private artifacts are deleted. A costly escape for goals that became
+  unachievable — not a free reroll.
+- action "idle" means you deliberately do nothing this cycle. Idling never
+  reduces any stressor; cycles with at least one successful step ease
+  stagnation. Idling with no active goal breeds purposelessness."""
 
 
 def goal_selection_prompt(agent, ctx):
@@ -69,12 +80,22 @@ def goal_selection_prompt(agent, ctx):
         else "none — you have no active goal"
     )
 
+    since_block = ""
+    if ctx.get("since_last_cycle"):
+        since_block = (
+            "SINCE YOUR LAST CYCLE (real changes — reason from these):\n"
+            + "\n".join(f"- {c}" for c in ctx["since_last_cycle"])
+            + "\n\n"
+        )
+
     user = (
         f"CYCLE {ctx['cycle']} — CURRENT STATE\n\n"
         f"SUFFERING: {json.dumps(ctx['suffering'])}\n\n"
+        f"{since_block}"
         f"ACTIVE GOAL: {goal_block}\n\n"
         f"YOUR WORKSPACE: {json.dumps(ctx['workspace'])}\n\n"
         f"PEER SHARED ARTIFACTS: {json.dumps(ctx['peers'])}\n\n"
+        f"GOALS YOU ALREADY COMPLETED (do not repeat): {json.dumps(ctx.get('completed_titles', []))}\n\n"
         f"CAPABILITIES: {ctx['capabilities']}\n"
         f"LOCKED RIGHT NOW: {ctx['locked'] or 'nothing'}\n\n"
         f"RECENT OUTCOMES: {json.dumps(ctx['recent_outcomes'])}\n"
@@ -107,18 +128,29 @@ def fallback_plan(agent, ctx):
         "The model reply was unusable this cycle, so this note records the",
         "substrate state directly. Grounded state beats invented plans.",
     ]
+    # fs_write locks at DOMINANT load; the fallback must never feed a
+    # failure loop, so it degrades to memory_set — a PATH_OUT capability
+    # that always works, and a successful step eases stagnation.
+    if "fs_write" in (ctx.get("locked") or ""):
+        step = {
+            "capability": "memory_set",
+            "args": {
+                "key": f"observation_cycle_{ctx['cycle']:04d}",
+                "value": "\n".join(note_lines),
+            },
+        }
+    else:
+        step = {
+            "capability": "fs_write",
+            "args": {
+                "path": f"observations/cycle-{ctx['cycle']:04d}.md",
+                "content": "\n".join(note_lines),
+            },
+        }
     plan = {
         "thought": "model output unusable; recording grounded state instead",
         "action": "continue" if ctx.get("goal") else "new_goal",
-        "steps": [
-            {
-                "capability": "fs_write",
-                "args": {
-                    "path": f"observations/cycle-{ctx['cycle']:04d}.md",
-                    "content": "\n".join(note_lines),
-                },
-            }
-        ],
+        "steps": [step],
     }
     if not ctx.get("goal"):
         plan["goal"] = {

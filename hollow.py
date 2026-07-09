@@ -35,14 +35,19 @@ Osaurus doesn't seem to be running at {base_url}.
 
 
 def rank_model(model_id: str) -> int:
-    """Crude preference order for the wizard's recommendation."""
+    """Crude preference order for the wizard's recommendation. Multi-char
+    markers first: "27b" must match before "7b", "14b" before "4b"."""
     m = model_id.lower()
-    if "30b-a3b" in m or "a3b" in m:
+    if "a3b" in m:
         return 0
-    for marker, rank in (("14b", 1), ("8b", 2), ("7b", 3), ("4b", 4), ("3b", 5)):
+    for marker, rank in (
+        ("30b", 1), ("27b", 2), ("14b", 3), ("8b", 4), ("7b", 5), ("4b", 6), ("3b", 7),
+    ):
         if marker in m:
             return rank
-    return 6
+    if "foundation" in m:
+        return 9  # Apple's small on-device model: never beat an installed community model
+    return 8
 
 
 def wizard(config_path: Path, base_url: str, assume_yes: bool) -> dict:

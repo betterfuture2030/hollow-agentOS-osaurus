@@ -49,6 +49,10 @@ class Habitat:
         self.cycle = {a: 0 for a in AGENT_NAMES}
         self.outcomes = {a: [] for a in AGENT_NAMES}
         self.last_completion_cycle = {a: 0 for a in AGENT_NAMES}
+        # perception digest state: agents reason only from what they can
+        # see, so surface stressor deltas and last cycle's failed steps
+        self.last_stressors = {a: {} for a in AGENT_NAMES}
+        self.last_step_errors = {a: [] for a in AGENT_NAMES}
         self._stop = threading.Event()
 
     # -- controls (used by the API server) ------------------------------
@@ -136,6 +140,31 @@ class Habitat:
         else:
             s.ease("resource_burden")
 
+    def _since_last_cycle(self, agent):
+        """Digest of real changes the agent should reason from: stressor
+        deltas (the load cap can mask improvement) and last cycle's failed
+        steps (so dead paths aren't retried forever)."""
+        prev = self.last_stressors[agent]
+        now = {k: v["severity"] for k, v in self.suffering[agent].stressors.items()}
+        changes = []
+        for kind in sorted(set(prev) | set(now)):
+            before, after = prev.get(kind, 0.0), now.get(kind, 0.0)
+            if abs(after - before) < 0.01:
+                continue
+            if after < before:
+                note = f"{kind} eased {before:g} -> {after:g}"
+                if kind == "stagnation":
+                    note += " (your successful steps did this; idling never eases anything)"
+            else:
+                reason = self.suffering[agent].stressors.get(kind, {}).get("reason", "")
+                note = f"{kind} rose {before:g} -> {after:g}" + (f" ({reason})" if reason else "")
+            changes.append(note)
+        changes.extend(self.last_step_errors[agent])
+        # snapshot what the agent sees NOW, so the next digest spans exactly
+        # one decision to the next (including end-of-cycle eases)
+        self.last_stressors[agent] = now
+        return changes
+
     def _futility_check(self, agent, title):
         abandoned = self.goals[agent].all_titles(status="abandoned")
         if any(jaccard(title, old) >= 0.55 for old in abandoned):
@@ -161,9 +190,11 @@ class Habitat:
             "cycle": cycle,
             "rules": self.lessons.rules_block(),
             "suffering": self.suffering[agent].summary(),
+            "since_last_cycle": self._since_last_cycle(agent),
             "goal": registry.active(),
             "workspace": self._workspace_listing(agent),
             "peers": self._peer_artifacts(agent),
+            "completed_titles": registry.all_titles(status="completed")[-6:],
             "capabilities": ", ".join(self.caps.names(agent)),
             "locked": ", ".join(sorted(self.suffering[agent].locked_capabilities())),
             "host_messages": host_messages,
@@ -173,7 +204,9 @@ class Habitat:
 
         system, user = goal_selection_prompt(agent, ctx)
         plan = self.llm.json_chat(system, user)
-        if not isinstance(plan, dict) or plan.get("action") not in ("new_goal", "continue", "idle"):
+        if not isinstance(plan, dict) or plan.get("action") not in (
+            "new_goal", "continue", "abandon_goal", "idle",
+        ):
             self.memory.event(agent, "decide", "model output unusable, grounded fallback")
             plan = fallback_plan(agent, ctx)
         thought = str(plan.get("thought", ""))[:300]
@@ -182,6 +215,18 @@ class Habitat:
 
         goal = registry.active()
         action = plan["action"]
+        if action == "abandon_goal":
+            if goal is not None:
+                registry.abandon(goal)
+                removed = registry.cleanup_artifacts(goal, self.memory.workspace)
+                self._grow(agent, "futility", 0.2, f"voluntarily abandoned: {goal['title'][:60]}")
+                self.memory.event(
+                    agent, "goal_abandoned",
+                    f"{goal['title']} (voluntary, cleaned {len(removed)} artifacts)",
+                )
+                goal = None
+            else:
+                self.memory.event(agent, "goal", "asked to abandon but no goal is active")
         if action == "new_goal" and goal is None and isinstance(plan.get("goal"), dict):
             g = plan["goal"]
             goal = registry.create(
@@ -201,11 +246,14 @@ class Habitat:
 
         # execute steps
         step_ok_count = 0
+        failed_steps = []
         max_steps = self.config["runtime"].get("max_steps_per_cycle", 2)
         steps = plan.get("steps") or []
         if action == "idle":
             steps = []
             self.memory.event(agent, "cycle", "chose to idle")
+        elif action == "abandon_goal":
+            steps = []
         for step in steps[:max_steps]:
             if not isinstance(step, dict):
                 continue
@@ -213,6 +261,11 @@ class Habitat:
             result = self.caps.dispatch(agent, name, step.get("args") or {})
             if result.get("ok"):
                 step_ok_count += 1
+            else:
+                failed_steps.append(
+                    f"your step {name}({str(step.get('args'))[:100]}) failed last cycle: "
+                    f"{str(result.get('error', ''))[:120]} — do not retry it unchanged"
+                )
             if goal is not None:
                 registry.record_step(
                     goal,
@@ -221,6 +274,7 @@ class Habitat:
                     str(result.get("result", result.get("error", "")))[:200],
                     result.get("artifact"),
                 )
+        self.last_step_errors[agent] = failed_steps[:4]
 
         # optional lesson from the plan
         lesson = plan.get("lesson")
