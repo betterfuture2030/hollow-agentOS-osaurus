@@ -24,7 +24,9 @@ JSON_MAX_TOKENS = 1200
 NO_THINK_MARKER = "/no_think"
 NO_THINK_MODEL_SUBSTRINGS = ("qwen",)
 # Kept when logging an unusable reply for offline prompt iteration.
-FAILURE_SNIPPET_CHARS = 800
+# JSON_MAX_TOKENS bounds replies to a few KB, so keep effectively all of it:
+# diagnosing a parse failure needs the tail, not the head.
+FAILURE_SNIPPET_CHARS = 8000
 
 
 def strip_thinking(text: str) -> str:
