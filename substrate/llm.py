@@ -18,7 +18,11 @@ FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
 # json_chat generates less than free-form chat: a plan is a few hundred
 # tokens, and on a ~8 tok/s local model every 1000 tokens is ~2 minutes.
-JSON_MAX_TOKENS = 1200
+# But a plan's fs_write step carries full document content, and 1200 was
+# observed truncating artifacts mid-sentence (validation then rejects them
+# as incomplete). 2000 tokens ≈ 4 min generation — still inside the 480 s
+# timeout with prompt-processing headroom.
+JSON_MAX_TOKENS = 2000
 # Qwen3-family soft switch: appending this to the system prompt suppresses
 # <think> blocks, which we strip anyway. Ignored by other models.
 NO_THINK_MARKER = "/no_think"
