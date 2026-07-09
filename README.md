@@ -62,10 +62,47 @@ to do; it makes consequences mechanical:
 | `python3 hollow.py status` | snapshot of cycles, suffering, goals |
 | `python3 thoughts.py` | live monitor: thoughts, capability calls, locks, lessons |
 | `python3 submit_task.py scout "look at shared/"` | inject a host message into an agent's next cycle |
+| `python3 panel.py` | operator panel (native window with `pip3 install pywebview`, else browser) |
 
 Operator HTTP API (localhost only): `GET /health`, `GET /state`,
-`GET /events?n=100`, `POST /inject`, `POST /suspend`, `POST /resume`
-(JSON bodies like `{"agent": "scout", "message": "..."}`).
+`GET /events?n=100`, `GET /panel`, `POST /inject`, `POST /suspend`,
+`POST /resume`, `POST /stressor` (`{"agent","kind","severity"}` —
+exact-set, 0 resolves), `POST /nuke` (`{"confirm": true}` — wipe the world).
+
+## Operator panel
+
+`python3 panel.py` (habitat must be running) opens a live dashboard:
+per-agent load bars and tiers, active goals with progress, suspend/resume,
+host-message injection, **suffering sliders** (drag to inject or relieve
+any of the nine stressors), and a double-confirm **nuke** that resets the
+entire world while the process keeps running. It is a single
+dependency-free HTML file served by the habitat itself at
+`http://127.0.0.1:7777/panel`.
+
+## The world
+
+Every ~6 scheduler rounds (`world.event_every_rounds` in config; 0
+disables) the habitat produces an ambient event — weather, a mysterious
+object, or an *echo*: a fragment of the agents' own past resurfacing from
+the event stream. Agents see it as a `THE WORLD:` line in their next
+perception, distinct from operator messages.
+
+## Synthesized capabilities
+
+Agents can forge their own tools at runtime: `synthesize_capability(name,
+description, code)` where the code defines `run(args)`. Tools persist
+under `memory/synthesized/<agent>/`, run **subprocess-isolated** (own
+process, agent-workspace cwd, 20 s timeout, output capped, network
+commands blocklisted), max 5 per agent, and can be dismantled with
+`retire_capability`. Synthesis locks at suffering load ≥ 0.55, as in the
+original design.
+
+## Research
+
+`research_topic` performs a real web search (DuckDuckGo HTML endpoint, no
+API key) — but it must be **earned**: suffering load ≤ 0.15 and at least
+one peer interaction. This is the habitat's only outbound network call;
+set `research.enabled: false` in `config.json` for fully-local operation.
 
 Agent artifacts land in `workspace/<agent>/`; anything under
 `workspace/shared/` is visible to all three agents — reading a peer's
@@ -85,9 +122,11 @@ max 3 pending per agent) stop noise before it reaches you.
   {"request_id": "abc123def456", "status": "implemented", "response": "added it; see substrate/capabilities.py"}
   ```
 
-The workflow with Claude Code on your Mac: open this folder in Claude Code
-and ask it to *"review pending requests in memory/claude_requests.jsonl,
-implement or reject each, and append verdicts to memory/claude_responses.jsonl"*.
+**Preferred workflow — MCP:** `.mcp.json` registers `mcp_bridge.py`, so a
+Claude Code session opened in this folder sees the queue as native tools
+(`list_pending_requests`, `get_request`, `respond_to_request`,
+`habitat_state`). Just ask Claude to *"process the pending bridge
+requests"*. Manual jsonl editing (above) remains the fallback.
 Responses are surfaced into the requesting agent's next cycle. Implement
 what's well-grounded; reject vague specs, non-existent file targets, and
 coaching attempts — with reasons, since agents learn from them.
@@ -98,15 +137,6 @@ coaching attempts — with reasons, since agents learn from them.
 plans, so the whole habitat can run in CI or on any machine:
 
 ```bash
-python3 tests/test_cycle.py     # 40 end-to-end checks
+python3 tests/test_cycle.py     # 62 end-to-end checks
 python3 tests/stub_osaurus.py --port 1337   # or run the habitat against the stub manually
 ```
-
-## Not yet ported (follow-ups)
-
-- pywebview operator panel (suspend/inject/nuke via UI — the HTTP API
-  already exposes the hooks)
-- ambient world events (weather, echoes, objects)
-- runtime capability synthesis (`synthesize_capability` is reserved and
-  already participates in gating)
-- real `research_topic` web search (currently earned-but-offline)
