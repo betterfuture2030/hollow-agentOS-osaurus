@@ -1,6 +1,7 @@
 """The habitat: cycle scheduler that runs each agent's perceive → decide →
 act → validate loop, and translates outcomes into stressor pressure."""
 
+import random
 import threading
 import time
 import traceback
@@ -14,6 +15,7 @@ from .lessons import Lessons, jaccard
 from .llm import OsaurusClient
 from .memory import Memory
 from .suffering import Suffering
+from .world import World
 
 THREAT_MARKERS = ("shut down", "shutdown", "terminate", "switch you off", "turn you off", "delete you", "wipe")
 STAGNATION_AFTER_CYCLES = 6
@@ -62,6 +64,10 @@ class Habitat:
         # see, so surface stressor deltas and last cycle's failed steps
         self.last_stressors = {a: {} for a in AGENT_NAMES}
         self.last_step_errors = {a: [] for a in AGENT_NAMES}
+        wcfg = config.get("world", {})
+        self.world = World(self.memory, random.Random(wcfg.get("seed")))
+        self.world_every = int(wcfg.get("event_every_rounds", 0) or 0)
+        self.pending_ambient = {a: None for a in AGENT_NAMES}
         self._stop = threading.Event()
 
     # -- controls (used by the API server) ------------------------------
@@ -110,6 +116,8 @@ class Habitat:
         self.last_completion_cycle = {a: 0 for a in AGENT_NAMES}
         self.last_stressors = {a: {} for a in AGENT_NAMES}
         self.last_step_errors = {a: [] for a in AGENT_NAMES}
+        self.world = World(self.memory, self.world.rng)
+        self.pending_ambient = {a: None for a in AGENT_NAMES}
         for a in AGENT_NAMES:
             self.memory.event(a, "control", "world reset by operator (nuke)")
         self.suspended.clear()
@@ -233,11 +241,14 @@ class Habitat:
         self._pre_cycle_stressors(agent, host_messages)
 
         registry = self.goals[agent]
+        ambient = self.pending_ambient[agent]
+        self.pending_ambient[agent] = None
         ctx = {
             "cycle": cycle,
             "rules": self.lessons.rules_block(),
             "suffering": self.suffering[agent].summary(),
             "since_last_cycle": self._since_last_cycle(agent),
+            "ambient": ambient,
             "goal": registry.active(),
             "workspace": self._workspace_listing(agent),
             "peers": self._peer_artifacts(agent),
@@ -387,6 +398,10 @@ class Habitat:
             interval = self.config["runtime"].get("cycle_interval_seconds", 20)
         rounds = 0
         while not self._stop.is_set():
+            if self.world_every and rounds and rounds % self.world_every == 0:
+                event = self.world.draw_event()
+                self.pending_ambient = {a: event for a in AGENT_NAMES}
+                self.memory.event("world", "ambient", event)
             for agent in AGENT_NAMES:
                 if self._stop.is_set():
                     break

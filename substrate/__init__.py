@@ -25,6 +25,12 @@ DEFAULT_CONFIG = {
         "api_port": 7777,
         "max_steps_per_cycle": 2,
     },
+    "world": {
+        # one ambient event (weather/echo/object) every N scheduler rounds;
+        # 0 disables the world. seed fixes the sequence (tests use this).
+        "event_every_rounds": 6,
+        "seed": None,
+    },
 }
 
 

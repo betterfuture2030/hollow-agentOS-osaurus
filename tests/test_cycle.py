@@ -297,6 +297,26 @@ def main():
     habitat.run_cycle("scout")
     check("resumed agent cycles again", habitat.cycle["scout"] == before + 1)
 
+    # --- ambient world events ----------------------------------------------
+    import random as _random
+    from substrate.world import World, ECHO_PREFIX
+    w = World(habitat.memory, _random.Random(7))
+    drawn = {w.draw_event() for _ in range(30)}
+    check("seeded world draws varied ambient events",
+          len(drawn) >= 3 and all(isinstance(e, str) and e for e in drawn))
+    check("world can echo real habitat history",
+          any(e.startswith(ECHO_PREFIX) for e in drawn), str(sorted(drawn))[:200])
+    habitat.pending_ambient["builder"] = "A dry wind moves through the workspace."
+    habitat.llm.json_chat = lambda *a, **k: {"thought": "windy", "action": "idle", "steps": []}
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = real_json_chat
+    _, amb_prompt = goal_selection_prompt("builder", {
+        **ctx, "ambient": "A dry wind moves through the workspace."})
+    check("ambient event renders as THE WORLD in the prompt",
+          "THE WORLD: A dry wind" in amb_prompt)
+    check("ambient event is consumed after one cycle",
+          habitat.pending_ambient["builder"] is None)
+
     # --- operator panel endpoints -----------------------------------------
     panel = httpx.get(f"{api}/panel")
     check("/panel serves the operator UI",

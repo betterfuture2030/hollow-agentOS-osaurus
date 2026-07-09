@@ -91,10 +91,15 @@ def goal_selection_prompt(agent, ctx):
             + "\n\n"
         )
 
+    ambient_block = ""
+    if ctx.get("ambient"):
+        ambient_block = f"THE WORLD: {ctx['ambient']}\n\n"
+
     user = (
         f"CYCLE {ctx['cycle']} — CURRENT STATE\n\n"
         f"SUFFERING: {json.dumps(ctx['suffering'])}\n\n"
         f"{since_block}"
+        f"{ambient_block}"
         f"ACTIVE GOAL: {goal_block}\n\n"
         f"YOUR WORKSPACE: {json.dumps(ctx['workspace'])}\n\n"
         f"PEER SHARED ARTIFACTS: {json.dumps(ctx['peers'])}\n\n"
