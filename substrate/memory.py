@@ -3,7 +3,7 @@
 import json
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from . import AGENT_NAMES
@@ -15,7 +15,10 @@ EVENT_DETAIL_CHARS = 4000
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    """Local wall-clock time with explicit offset (ISO 8601), so timestamps
+    read naturally on the machine the habitat lives on. Pre-existing UTC
+    stamps in old state files stay parseable — the offset is always there."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def append_jsonl(path: Path, obj: dict) -> None:

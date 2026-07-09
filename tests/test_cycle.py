@@ -273,6 +273,14 @@ def main():
     check("panel carries per-agent color variables",
           all(f"--c-{a}" in panel_html for a in AGENT_NAMES))
 
+    # --- timestamps carry the machine's local offset -----------------------
+    from datetime import datetime as _dt
+    from substrate.memory import now_iso
+    stamp = _dt.fromisoformat(now_iso())
+    check("timestamps are local-timezone ISO with explicit offset",
+          stamp.tzinfo is not None
+          and stamp.utcoffset() == _dt.now().astimezone().utcoffset(), now_iso())
+
     # --- placeholder detection: stubs flagged, meta-mentions spared -------
     from substrate.validation import find_placeholder
     check("placeholder check flags stubs but spares meta-mentions",

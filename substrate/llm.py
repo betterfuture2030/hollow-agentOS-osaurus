@@ -4,7 +4,7 @@ import json
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 
@@ -94,7 +94,7 @@ class OsaurusClient:
         """Append one call record to the llm log; never let logging fail a call."""
         if not self.log_path:
             return
-        record = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **record}
+        record = {"ts": datetime.now().astimezone().isoformat(timespec="seconds"), **record}
         try:
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
