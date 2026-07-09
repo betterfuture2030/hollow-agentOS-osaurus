@@ -22,6 +22,10 @@ STAGNATION_AFTER_CYCLES = 6
 # stagnation threshold, or productive cycles merely tread water and an agent
 # whose goal needs a locked capability can never dig itself out.
 STAGNATION_EASE_ON_SUCCESS = 0.2
+# Failed-step warnings stay in the perception digest this many cycles, not
+# just one: a cycle that runs no steps (idle, abandon) must not amnesty the
+# dead paths the agent was about to retry.
+STEP_ERROR_MEMORY_CYCLES = 3
 RESOURCE_BURDEN_FILES = 150
 OUTCOME_WINDOW = 6
 
@@ -100,11 +104,15 @@ class Habitat:
         return {"own": own[:60], "shared": shared[:60]}
 
     def _peer_artifacts(self, agent):
+        """Peer shared files from the manifest — filtered to files that
+        still exist. The manifest is append-only, so without the filter a
+        deleted shared file haunts every prompt as a ghost artifact
+        (observed live: an agent kept planning goals around one)."""
         manifest = self.memory.shared_manifest()
         return [
             {"file": rel, "author": info["author"]}
             for rel, info in list(manifest.items())[-8:]
-            if info["author"] != agent
+            if info["author"] != agent and (self.memory.workspace / rel).is_file()
         ]
 
     def _grow(self, agent, kind, step, reason):
@@ -159,7 +167,7 @@ class Habitat:
                 reason = self.suffering[agent].stressors.get(kind, {}).get("reason", "")
                 note = f"{kind} rose {before:g} -> {after:g}" + (f" ({reason})" if reason else "")
             changes.append(note)
-        changes.extend(self.last_step_errors[agent])
+        changes.extend(msg for _, msg in self.last_step_errors[agent])
         # snapshot what the agent sees NOW, so the next digest spans exactly
         # one decision to the next (including end-of-cycle eases)
         self.last_stressors[agent] = now
@@ -263,7 +271,7 @@ class Habitat:
                 step_ok_count += 1
             else:
                 failed_steps.append(
-                    f"your step {name}({str(step.get('args'))[:100]}) failed last cycle: "
+                    f"your step {name}({str(step.get('args'))[:100]}) failed recently: "
                     f"{str(result.get('error', ''))[:120]} — do not retry it unchanged"
                 )
             if goal is not None:
@@ -274,7 +282,13 @@ class Habitat:
                     str(result.get("result", result.get("error", "")))[:200],
                     result.get("artifact"),
                 )
-        self.last_step_errors[agent] = failed_steps[:4]
+        kept = [
+            (c, m) for c, m in self.last_step_errors[agent]
+            if cycle - c < STEP_ERROR_MEMORY_CYCLES
+        ]
+        self.last_step_errors[agent] = (
+            [(cycle, m) for m in failed_steps] + kept
+        )[:4]
 
         # optional lesson from the plan
         lesson = plan.get("lesson")

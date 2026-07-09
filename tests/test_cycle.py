@@ -223,6 +223,32 @@ def main():
     check("prompt renders digest and completed goals",
           "SINCE YOUR LAST CYCLE" in user_prompt and "Old goal title" in user_prompt)
 
+    # --- ghost shared files leave the perception prompt -------------------
+    (habitat.memory.workspace / "shared" / "keepme.md").unlink()
+    check("deleted shared files are filtered from peer artifacts",
+          not any(p["file"] == "shared/keepme.md" for p in habitat._peer_artifacts("scout")),
+          str(habitat._peer_artifacts("scout")))
+
+    # --- step-failure warnings survive an idle cycle -----------------------
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": "try a dead path", "action": "continue",
+        "steps": [{"capability": "fs_read", "args": {"path": "does/not/exist.md"}}],
+    }
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = lambda *a, **k: {"thought": "rest", "action": "idle", "steps": []}
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = real_json_chat
+    check("step-failure warnings persist past an idle cycle",
+          any("does/not/exist.md" in m for _, m in habitat.last_step_errors["builder"]),
+          str(habitat.last_step_errors["builder"]))
+
+    # --- placeholder detection: stubs flagged, meta-mentions spared -------
+    from substrate.validation import find_placeholder
+    check("placeholder check flags stubs but spares meta-mentions",
+          find_placeholder("Section 2\nTODO: write this part") == "todo"
+          and find_placeholder("Quality: No placeholders (e.g., TODO, FIXME).") is None
+          and find_placeholder("My toDoList app tracks tasks.") is None)
+
     # --- operator API ----------------------------------------------------
     server = start_server(habitat, 0)
     api = f"http://127.0.0.1:{server.server_address[1]}"

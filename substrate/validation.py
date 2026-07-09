@@ -11,7 +11,24 @@ import re
 
 OUTPUT_CAPS = {"memory_set", "fs_write", "fs_edit", "propose_change", "invoke_claude"}
 PLACEHOLDER_PATTERNS = ("todo", "tbd", "lorem ipsum", "placeholder", "<insert", "fixme")
+# A pattern on a line that negates or forbids it is a meta-mention, not a
+# stub: an artifact saying "No placeholders (e.g. TODO)" must not be punished
+# for banning them (observed live: it cost an agent its best artifact).
+NEGATION_MARKERS = ("no ", "not ", "never", "avoid", "without", "forbid", "reject")
 MIN_ARTIFACT_CHARS = 120
+
+
+def find_placeholder(text: str):
+    """Return the offending pattern if the text contains real stub filler."""
+    for line in text.lower().splitlines():
+        for pat in PLACEHOLDER_PATTERNS:
+            if pat.isalnum():
+                hit = re.search(rf"(?<![a-z0-9]){re.escape(pat)}(?![a-z0-9])", line)
+            else:
+                hit = pat in line
+            if hit and not any(neg in line for neg in NEGATION_MARKERS):
+                return pat
+    return None
 
 CLAIM_RE = re.compile(
     r"(?:created|wrote|saved|generated)\s+[`\"']?([\w][\w./-]*\.[a-z0-9]{1,5})[`\"']?",
@@ -49,11 +66,9 @@ def validate_goal(goal: dict, workspace_root, llm, memory) -> tuple:
         text = path.read_text(encoding="utf-8", errors="replace")
         if len(text.strip()) < MIN_ARTIFACT_CHARS:
             failures.append(f"layer3: artifact too thin ({len(text.strip())} chars): {rel}")
-        lowered = text.lower()
-        for pat in PLACEHOLDER_PATTERNS:
-            if pat in lowered:
-                failures.append(f"layer3: placeholder pattern '{pat}' in {rel}")
-                break
+        pat = find_placeholder(text)
+        if pat:
+            failures.append(f"layer3: placeholder pattern '{pat}' in {rel}")
         texts.append((rel, text))
 
     if failures:
