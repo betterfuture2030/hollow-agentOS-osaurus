@@ -16,9 +16,9 @@ DEFAULT_CONFIG = {
         "base_url": "http://127.0.0.1:1337/v1",
         "default_model": "",
         "fallback_model": "",
-        # generous: a 27B-class model on consumer silicon runs ~8 tok/s,
-        # so even a few hundred tokens of plan takes minutes
-        "timeout_seconds": 480,
+        # generous: a 27B-class model on consumer silicon runs ~8 tok/s, so a
+        # full JSON_MAX_TOKENS plan can take ~6 minutes; sized to match llm.py
+        "timeout_seconds": 600,
     },
     "runtime": {
         "cycle_interval_seconds": 20,

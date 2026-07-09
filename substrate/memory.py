@@ -8,6 +8,11 @@ from pathlib import Path
 
 from . import AGENT_NAMES
 
+# Events must carry full thoughts — clipped reasoning in the stream reads as
+# agent incoherence (observed on the operator panel). This is a guard against
+# runaway payloads, not a summarization device.
+EVENT_DETAIL_CHARS = 4000
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -96,7 +101,8 @@ class Memory:
     def event(self, agent: str, kind: str, detail: str) -> None:
         append_jsonl(
             self.dir / "events.jsonl",
-            {"ts": now_iso(), "t": time.time(), "agent": agent, "kind": kind, "detail": detail[:600]},
+            {"ts": now_iso(), "t": time.time(), "agent": agent, "kind": kind,
+             "detail": detail[:EVENT_DETAIL_CHARS]},
         )
 
     def recent_events(self, n: int = 50):

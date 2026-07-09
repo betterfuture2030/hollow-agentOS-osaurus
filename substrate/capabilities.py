@@ -101,7 +101,7 @@ class Capabilities:
     # ------------------------------------------------------------------
     def dispatch(self, agent: str, name: str, args: dict) -> dict:
         args = args or {}
-        args_summary = ", ".join(f"{k}={str(v)[:60]}" for k, v in args.items())
+        args_summary = ", ".join(f"{k}={str(v)[:200]}" for k, v in args.items())
         suffering = self.suffering_for(agent)
 
         synthesized = self._synth_registry(agent)
@@ -235,7 +235,7 @@ class Capabilities:
 
         try:
             reply = self.llm.chat(
-                [{"role": "user", "content": prompt[:6000]}], max_tokens=1024
+                [{"role": "user", "content": prompt[:6000]}], max_tokens=2048
             )
         except LLMError as e:
             raise CapabilityError(f"model unavailable: {e}")

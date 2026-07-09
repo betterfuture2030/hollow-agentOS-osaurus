@@ -256,6 +256,23 @@ def main():
           any("does/not/exist.md" in m for _, m in habitat.last_step_errors["builder"]),
           str(habitat.last_step_errors["builder"]))
 
+    # --- thoughts survive untruncated end to end ---------------------------
+    long_thought = "I am reasoning at length about the habitat. " * 20  # ~880 chars
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": long_thought, "action": "idle", "steps": []}
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = real_json_chat
+    recorded = [e for e in habitat.memory.recent_events(20)
+                if e["kind"] == "thought" and e["agent"] == "builder"][-1]
+    check("thoughts are recorded in full, not clipped",
+          recorded["detail"] == long_thought[:4000]
+          and len(recorded["detail"]) > 600, str(len(recorded["detail"])))
+    check("last_thought is exposed on the habitat state",
+          habitat.state()["builder"]["last_thought"] == long_thought[:4000])
+    panel_html = (Path(__file__).resolve().parent.parent / "panel.html").read_text()
+    check("panel carries per-agent color variables",
+          all(f"--c-{a}" in panel_html for a in AGENT_NAMES))
+
     # --- placeholder detection: stubs flagged, meta-mentions spared -------
     from substrate.validation import find_placeholder
     check("placeholder check flags stubs but spares meta-mentions",
@@ -284,7 +301,9 @@ def main():
     check("/health", httpx.get(f"{api}/health").json()["ok"])
     state = httpx.get(f"{api}/state").json()
     check("/state exposes all agents + suffering",
-          set(state) == set(AGENT_NAMES) and "load" in state["scout"]["suffering"])
+          set(AGENT_NAMES) <= set(state) and "load" in state["scout"]["suffering"])
+    check("/state carries last_thought and world for the panel",
+          "last_thought" in state["scout"] and "_world" in state)
     httpx.post(f"{api}/inject", json={"agent": "scout", "message": "hello from the host"})
     msgs = habitat.memory.drain_host_messages("scout")
     check("/inject round-trips into host messages",

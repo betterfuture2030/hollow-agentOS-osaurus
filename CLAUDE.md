@@ -66,7 +66,7 @@ full credit to ninjahawk).
   tests/
     stub_osaurus.py         fake /v1/models + /v1/chat/completions with scripted
                             plans — lets the whole habitat run with no model
-    test_cycle.py           62-check end-to-end test (run: python3 tests/test_cycle.py)
+    test_cycle.py           66-check end-to-end test (run: python3 tests/test_cycle.py)
 ```
 
 ## Tech stack and conventions
@@ -77,7 +77,7 @@ full credit to ninjahawk).
 - **Osaurus** serves models at `http://127.0.0.1:1337/v1`. Models are
   downloaded in the Osaurus app; the wizard only offers what's installed.
   On this Mac: `qwen3.6-27b-mxfp4` (~8 tok/s — budget minutes per call;
-  `timeout_seconds` is 480 for a reason) with `foundation` as fast fallback.
+  `timeout_seconds` is 600 for a reason) with `foundation` as fast fallback.
 - **One model, one lock**: all LLM calls serialize through
   `OsaurusClient._lock`. Never add concurrent inference.
 - **No `response_format`/JSON mode**: JSON is prompt-enforced, parsed by
@@ -89,7 +89,7 @@ full credit to ninjahawk).
 - **State is jsonl/json under `memory/`**; goal registry lines are full
   snapshots — last line per id wins. **Runtime state is never committed.**
 - **Tunable constants sit at module tops** — change them there, not inline.
-- **Testing needs no model**: `.venv/bin/python tests/test_cycle.py` (62
+- **Testing needs no model**: `.venv/bin/python tests/test_cycle.py` (66
   plain-assert checks against the stub). Keep it green; extend the stub's
   scripted plans when adding mechanics.
 - **Every mechanic must be perceivable.** The hard-won rule of this project:

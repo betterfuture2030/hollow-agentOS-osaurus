@@ -69,6 +69,9 @@ class Habitat:
         self.world = World(self.memory, random.Random(wcfg.get("seed")))
         self.world_every = int(wcfg.get("event_every_rounds", 0) or 0)
         self.pending_ambient = {a: None for a in AGENT_NAMES}
+        self.last_ambient = None
+        self.last_thought = {a: None for a in AGENT_NAMES}
+        self.completions = {a: 0 for a in AGENT_NAMES}
         self._stop = threading.Event()
 
     # -- controls (used by the API server) ------------------------------
@@ -120,6 +123,9 @@ class Habitat:
         self.last_step_errors = {a: [] for a in AGENT_NAMES}
         self.world = World(self.memory, self.world.rng)
         self.pending_ambient = {a: None for a in AGENT_NAMES}
+        self.last_ambient = None
+        self.last_thought = {a: None for a in AGENT_NAMES}
+        self.completions = {a: 0 for a in AGENT_NAMES}
         for a in AGENT_NAMES:
             self.memory.event(a, "control", "world reset by operator (nuke)")
         self.suspended.clear()
@@ -133,11 +139,20 @@ class Habitat:
                 "suspended": a in self.suspended,
                 "suffering": self.suffering[a].summary(),
                 "active_goal": (
-                    {"title": goal["title"], "progress": goal["progress"]} if goal else None
+                    {
+                        "title": goal["title"],
+                        "progress": goal["progress"],
+                        "validation_failures": goal["validation_failures"],
+                    }
+                    if goal
+                    else None
                 ),
                 "recent_outcomes": self.outcomes[a][-OUTCOME_WINDOW:],
+                "last_thought": self.last_thought[a],
+                "completions": self.completions[a],
                 "claude_pending": len(self.bridge.pending(a)),
             }
+        out["_world"] = {"last_ambient": self.last_ambient}
         return out
 
     # -- perception helpers ---------------------------------------------
@@ -269,8 +284,11 @@ class Habitat:
         ):
             self.memory.event(agent, "decide", "model output unusable, grounded fallback")
             plan = fallback_plan(agent, ctx)
-        thought = str(plan.get("thought", ""))[:300]
+        # full thought, never clipped to a summary: truncated reasoning in the
+        # stream reads as incoherence (4000 is a runaway guard, not a cap)
+        thought = str(plan.get("thought", ""))[:4000]
         if thought:
+            self.last_thought[agent] = thought
             self.memory.event(agent, "thought", thought)
 
         goal = registry.active()
@@ -359,6 +377,7 @@ class Habitat:
             if passed:
                 registry.complete(goal)
                 self.last_completion_cycle[agent] = cycle
+                self.completions[agent] += 1
                 for kind in ("stagnation", "futility"):
                     self.suffering[agent].resolve(kind)
                 self.memory.event(agent, "goal_completed", goal["title"])
@@ -403,6 +422,7 @@ class Habitat:
             if self.world_every and rounds and rounds % self.world_every == 0:
                 event = self.world.draw_event()
                 self.pending_ambient = {a: event for a in AGENT_NAMES}
+                self.last_ambient = event
                 self.memory.event("world", "ambient", event)
             for agent in AGENT_NAMES:
                 if self._stop.is_set():

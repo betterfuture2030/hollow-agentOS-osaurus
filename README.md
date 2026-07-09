@@ -77,7 +77,7 @@ host-message injection, **suffering sliders** (drag to inject or relieve
 any of the nine stressors), and a double-confirm **nuke** that resets the
 entire world while the process keeps running. It is a single
 dependency-free HTML file served by the habitat itself at
-`http://127.0.0.1:7777/panel`.
+`http://127.0.0.1:7777/panel`. Agents are color-coded (cards match the stream), each card shows the agent's latest full thought and a cycle-outcome heartbeat, the stream fills the viewport with kind filters and auto-follow, and completions flash green.
 
 ## The world
 
@@ -137,6 +137,6 @@ coaching attempts — with reasons, since agents learn from them.
 plans, so the whole habitat can run in CI or on any machine:
 
 ```bash
-python3 tests/test_cycle.py     # 62 end-to-end checks
+python3 tests/test_cycle.py     # 66 end-to-end checks
 python3 tests/stub_osaurus.py --port 1337   # or run the habitat against the stub manually
 ```
