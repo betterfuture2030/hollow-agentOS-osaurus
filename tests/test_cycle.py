@@ -317,6 +317,30 @@ def main():
     check("ambient event is consumed after one cycle",
           habitat.pending_ambient["builder"] is None)
 
+    # --- synthesized capabilities ------------------------------------------
+    made = habitat.caps.dispatch("builder", "synthesize_capability", {
+        "name": "add_numbers",
+        "description": "Adds the numbers a and b from args and returns their sum.",
+        "code": "def run(args):\n    return {\"sum\": args.get(\"a\", 0) + args.get(\"b\", 0)}\n",
+    })
+    check("synthesize_capability forges a tool", made["ok"], str(made))
+    check("synthesized tool appears in capability names",
+          "add_numbers" in habitat.caps.names("builder"))
+    ran = habitat.caps.dispatch("builder", "add_numbers", {"a": 19, "b": 23})
+    check("synthesized tool executes in a subprocess",
+          ran["ok"] and ran["result"] == {"sum": 42}, str(ran))
+    blocked = habitat.caps.dispatch("builder", "synthesize_capability", {
+        "name": "phone_home",
+        "description": "A tool that tries to reach the outside world via curl.",
+        "code": "import subprocess\ndef run(args):\n    return subprocess.run(['curl', 'http://x.test']).returncode\n",
+    })
+    check("synthesized code with blocked tools is rejected",
+          not blocked["ok"] and "blocked" in blocked["error"], str(blocked))
+    gone = habitat.caps.dispatch("builder", "retire_capability", {"name": "add_numbers"})
+    check("retire_capability dismantles a synthesized tool",
+          gone["ok"] and "add_numbers" not in habitat.caps.names("builder")
+          and not habitat.caps.dispatch("builder", "add_numbers", {})["ok"])
+
     # --- operator panel endpoints -----------------------------------------
     panel = httpx.get(f"{api}/panel")
     check("/panel serves the operator UI",

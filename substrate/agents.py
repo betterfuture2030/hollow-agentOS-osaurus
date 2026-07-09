@@ -44,6 +44,10 @@ Rules:
   peers can see it. Reading peers' shared files is how you stop being
   invisible to each other.
 - "lesson" is optional; include it only when this cycle taught you a rule.
+- synthesize_capability(name, description, code) forges a NEW tool: code
+  must define `def run(args):` returning JSON-serializable data. It runs
+  in your workspace, isolated, 20s max. Afterwards call it by its name
+  like any capability. retire_capability dismantles it.
 - action "abandon_goal" abandons your active goal: it costs futility and
   its private artifacts are deleted. A costly escape for goals that became
   unachievable — not a free reroll. A validation failure is not that: you

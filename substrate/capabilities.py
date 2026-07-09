@@ -9,8 +9,11 @@ communal workspace under "shared/" that every agent can read and write
 (this is how peer interaction happens).
 """
 
+import json
+import re
 import shlex
 import subprocess
+import sys
 
 from .claude_bridge import ClaudeBridge
 from .lessons import Lessons
@@ -24,6 +27,23 @@ MAX_RESULT_CHARS = 4000
 PLACEHOLDER_NOTE = (
     "research_topic is earned and currently offline in this build; "
     "record what you wanted to research as a shared note instead."
+)
+
+# -- synthesized capabilities (agent-authored runtime tools) ---------------
+SYNTH_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{2,30}$")
+SYNTH_MIN_DESC = 30
+SYNTH_MIN_CODE = 40
+SYNTH_TIMEOUT = 20
+MAX_SYNTHESIZED = 5
+# Executed in a SEPARATE python process (never in-process exec): cwd is the
+# agent's workspace, wall-clock capped, output capped, code text screened
+# against the same network/system blocklist as shell_exec.
+SYNTH_RUNNER = (
+    "import json, sys, importlib.util\n"
+    "spec = importlib.util.spec_from_file_location('synth_tool', sys.argv[1])\n"
+    "mod = importlib.util.module_from_spec(spec)\n"
+    "spec.loader.exec_module(mod)\n"
+    "print(json.dumps(mod.run(json.loads(sys.argv[2]))))\n"
 )
 
 
@@ -51,14 +71,22 @@ class Capabilities:
             "invoke_claude": self._invoke_claude,
             "retire_capability": self._retire_capability,
             "research_topic": self._research_topic,
+            "synthesize_capability": self._synthesize_capability,
         }
 
     def names(self, agent: str) -> list:
         retired = set(read_json(self._retired_path(agent), []))
-        return sorted(set(self._handlers) - retired)
+        synthesized = set(self._synth_registry(agent))
+        return sorted((set(self._handlers) | synthesized) - retired)
 
     def _retired_path(self, agent: str):
         return self.memory.dir / "retired" / f"{agent}.json"
+
+    def _synth_dir(self, agent: str):
+        return self.memory.dir / "synthesized" / agent
+
+    def _synth_registry(self, agent: str) -> dict:
+        return read_json(self._synth_dir(agent) / "registry.json", {})
 
     # ------------------------------------------------------------------
     def dispatch(self, agent: str, name: str, args: dict) -> dict:
@@ -66,7 +94,8 @@ class Capabilities:
         args_summary = ", ".join(f"{k}={str(v)[:60]}" for k, v in args.items())
         suffering = self.suffering_for(agent)
 
-        if name not in self._handlers:
+        synthesized = self._synth_registry(agent)
+        if name not in self._handlers and name not in synthesized:
             self.memory.audit(agent, name, args_summary, "error", "unknown capability")
             return {"ok": False, "error": f"unknown capability: {name}"}
 
@@ -92,7 +121,10 @@ class Capabilities:
             return {"ok": False, "error": f"{name} is {detail}; reduce load first"}
 
         try:
-            result = self._handlers[name](agent, args)
+            if name in self._handlers:
+                result = self._handlers[name](agent, args)
+            else:
+                result = self._run_synthesized(agent, name, args)
             self.memory.audit(agent, name, args_summary, "ok")
             self.memory.event(agent, "capability", f"{name}({args_summary[:120]}) -> ok")
             return {"ok": True, **result}
@@ -246,6 +278,15 @@ class Capabilities:
 
     def _retire_capability(self, agent, args):
         name = (args.get("name") or "").strip()
+        synthesized = self._synth_registry(agent)
+        if name in synthesized:
+            del synthesized[name]
+            write_json(self._synth_dir(agent) / "registry.json", synthesized)
+            path = self._synth_dir(agent) / f"{name}.py"
+            if path.is_file():
+                path.unlink()
+            self.suffering_for(agent).ease("capability_lock")
+            return {"result": f"synthesized tool {name} dismantled; capability_lock pressure eased"}
         if name not in self._handlers or name == "retire_capability":
             raise CapabilityError(f"cannot retire: {name}")
         retired = set(read_json(self._retired_path(agent), []))
@@ -253,6 +294,62 @@ class Capabilities:
         write_json(self._retired_path(agent), sorted(retired))
         self.suffering_for(agent).ease("capability_lock")
         return {"result": f"{name} retired; capability_lock pressure eased"}
+
+    # -- synthesized capabilities ------------------------------------------
+    def _synthesize_capability(self, agent, args):
+        name = (args.get("name") or "").strip()
+        description = (args.get("description") or "").strip()
+        code = args.get("code") or ""
+        if not SYNTH_NAME_RE.match(name):
+            raise CapabilityError(
+                "name must match [a-z_][a-z0-9_]{2,30} (lowercase identifier)"
+            )
+        if name in self._handlers:
+            raise CapabilityError(f"'{name}' collides with a built-in capability")
+        if len(description) < SYNTH_MIN_DESC:
+            raise CapabilityError(f"description must be >= {SYNTH_MIN_DESC} chars (say what it does)")
+        if not isinstance(code, str) or len(code.strip()) < SYNTH_MIN_CODE:
+            raise CapabilityError(f"code must be >= {SYNTH_MIN_CODE} chars of real Python")
+        if "def run(" not in code:
+            raise CapabilityError("code must define `def run(args):` returning JSON-serializable data")
+        lowered_tokens = set(re.findall(r"[a-z0-9_.]+", code.lower()))
+        if any(b in lowered_tokens for b in SHELL_BLOCKLIST):
+            raise CapabilityError("code references a blocked tool (network/system commands are off-limits)")
+        registry = self._synth_registry(agent)
+        if name not in registry and len(registry) >= MAX_SYNTHESIZED:
+            raise CapabilityError(
+                f"you already maintain {MAX_SYNTHESIZED} synthesized tools; retire one first"
+            )
+        synth_dir = self._synth_dir(agent)
+        synth_dir.mkdir(parents=True, exist_ok=True)
+        (synth_dir / f"{name}.py").write_text(code, encoding="utf-8")
+        from .memory import now_iso
+
+        registry[name] = {"description": description[:300], "created_at": now_iso()}
+        write_json(synth_dir / "registry.json", registry)
+        return {"result": f"capability '{name}' synthesized; call it like any other capability"}
+
+    def _run_synthesized(self, agent, name, args):
+        path = self._synth_dir(agent) / f"{name}.py"
+        if not path.is_file():
+            raise CapabilityError(f"synthesized tool '{name}' is registered but its code is missing")
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", SYNTH_RUNNER, str(path), json.dumps(args)],
+                cwd=self.memory.workspace / agent,
+                capture_output=True,
+                text=True,
+                timeout=SYNTH_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise CapabilityError(f"'{name}' timed out after {SYNTH_TIMEOUT}s")
+        if proc.returncode != 0:
+            raise CapabilityError(f"'{name}' crashed: {proc.stderr.strip()[-300:]}")
+        out = proc.stdout.strip()[:MAX_RESULT_CHARS]
+        try:
+            return {"result": json.loads(out.splitlines()[-1]) if out else None}
+        except (json.JSONDecodeError, IndexError):
+            return {"result": out}
 
     def _research_topic(self, agent, args):
         suffering = self.suffering_for(agent)
