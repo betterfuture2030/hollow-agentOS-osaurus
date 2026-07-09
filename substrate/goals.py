@@ -76,9 +76,14 @@ class GoalRegistry:
         goal["closed_at"] = now_iso()
         self.save(goal)
 
-    def fail_validation(self, goal: dict) -> bool:
-        """Returns True if the goal was abandoned (failure budget exhausted)."""
+    def fail_validation(self, goal: dict, reasons: str = "") -> bool:
+        """Returns True if the goal was abandoned (failure budget exhausted).
+        The reason is stored on the goal so the agent can see WHAT the
+        validator rejected — invisible reasons read as a cursed goal and
+        drive premature abandonment."""
         goal["validation_failures"] += 1
+        if reasons:
+            goal["last_validation_failure"] = reasons[:240]
         goal["progress"] = min(goal["progress"], 0.8)
         if goal["validation_failures"] >= MAX_VALIDATION_FAILURES:
             self.abandon(goal)

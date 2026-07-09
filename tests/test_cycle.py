@@ -263,6 +263,14 @@ def main():
           and find_placeholder("Quality: No placeholders (e.g., TODO, FIXME).") is None
           and find_placeholder("My toDoList app tracks tasks.") is None)
 
+    # --- validation failure reasons reach the agent's next prompt ---------
+    vgoal = habitat.goals["builder"].create("Reason probe", "d" * 50, "c" * 30)
+    habitat.goals["builder"].fail_validation(vgoal, "layer3: artifact too thin")
+    _, vprompt = goal_selection_prompt("builder", {**ctx, "goal": vgoal})
+    habitat.goals["builder"].abandon(vgoal)
+    check("validation failure reason is shown in the goal block",
+          "why_validation_last_failed" in vprompt and "artifact too thin" in vprompt)
+
     # --- operator API ----------------------------------------------------
     server = start_server(habitat, 0)
     api = f"http://127.0.0.1:{server.server_address[1]}"

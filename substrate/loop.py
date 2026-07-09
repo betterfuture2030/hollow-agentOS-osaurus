@@ -316,7 +316,7 @@ class Habitat:
                     self.suffering[agent].resolve(kind)
                 self.memory.event(agent, "goal_completed", goal["title"])
             else:
-                abandoned = registry.fail_validation(goal)
+                abandoned = registry.fail_validation(goal, "; ".join(failures))
                 self.memory.event(
                     agent, "validation_failed", f"{goal['title']}: {'; '.join(failures)[:300]}"
                 )

@@ -46,7 +46,9 @@ Rules:
 - "lesson" is optional; include it only when this cycle taught you a rule.
 - action "abandon_goal" abandons your active goal: it costs futility and
   its private artifacts are deleted. A costly escape for goals that became
-  unachievable — not a free reroll.
+  unachievable — not a free reroll. A validation failure is not that: you
+  have 5 attempts, and "why_validation_last_failed" tells you exactly what
+  to fix. Repair the artifact before you consider walking away.
 - action "idle" means you deliberately do nothing this cycle. Idling never
   reduces any stressor; cycles with at least one successful step ease
   stagnation. Idling with no active goal breeds purposelessness."""
@@ -65,20 +67,19 @@ def goal_selection_prompt(agent, ctx):
         system += "\n" + ctx["rules"] + "\n"
 
     goal = ctx.get("goal")
-    goal_block = (
-        json.dumps(
-            {
-                "title": goal["title"],
-                "description": goal["description"],
-                "progress": goal["progress"],
-                "success_criteria": goal["success_criteria"],
-                "validation_failures": goal["validation_failures"],
-            },
-            indent=1,
-        )
-        if goal
-        else "none — you have no active goal"
-    )
+    if goal:
+        goal_view = {
+            "title": goal["title"],
+            "description": goal["description"],
+            "progress": goal["progress"],
+            "success_criteria": goal["success_criteria"],
+            "validation_failures": f"{goal['validation_failures']} of 5 allowed",
+        }
+        if goal.get("last_validation_failure"):
+            goal_view["why_validation_last_failed"] = goal["last_validation_failure"]
+        goal_block = json.dumps(goal_view, indent=1)
+    else:
+        goal_block = "none — you have no active goal"
 
     since_block = ""
     if ctx.get("since_last_cycle"):
