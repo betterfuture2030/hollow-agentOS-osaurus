@@ -79,6 +79,22 @@
   .ev.control { opacity: .55; }
   @keyframes glow { from { background: rgba(76,175,125,.25); } to { background: transparent; } }
   #jump { position: fixed; bottom: 26px; right: 34px; display: none; box-shadow: 0 2px 12px #0009; }
+  /* -- sparkline / peer graph -------------------------------------------- */
+  .spark { display: block; width: 100%; height: 26px; margin: 2px 0 6px; }
+  #peers { flex-shrink: 0; display: flex; align-items: center; gap: 14px;
+           background: var(--card); border: 1px solid var(--edge); border-radius: 8px;
+           padding: 4px 14px; font-size: 11px; color: var(--dim); min-height: 34px; }
+  #peers svg { height: 30px; }
+  /* -- file viewer -------------------------------------------------------- */
+  #viewer { position: fixed; inset: 0; background: #000a; display: none;
+            align-items: center; justify-content: center; z-index: 10; }
+  #viewer .box { background: var(--card); border: 1px solid var(--edge); border-radius: 10px;
+                 width: min(860px, 92vw); max-height: 84vh; display: flex; flex-direction: column; }
+  #viewer .box h3 { padding: 10px 16px; border-bottom: 1px solid var(--edge);
+                    font-size: 13px; color: var(--warn); display: flex; justify-content: space-between; }
+  #viewer pre { padding: 14px 16px; overflow: auto; white-space: pre-wrap;
+                word-break: break-word; font-size: 12.5px; line-height: 1.55; }
+  .filelink { color: var(--warn); text-decoration: underline dotted; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -86,9 +102,17 @@
   <h1>HOLLOW <small>operator panel</small> <span id="conn">…</span></h1>
   <span id="tally"></span>
   <span id="ambient"></span>
+  <button onclick="provoke()" title="draw an ambient world event right now">🌩 provoke world</button>
   <button class="danger" onclick="nuke()">☢ nuke world</button>
 </div>
 <div id="agents"></div>
+<div id="peers"><span>PEER READS</span><svg id="peersvg" width="520" viewBox="0 0 520 34"></svg><span id="peernote"></span></div>
+<div id="viewer" onclick="if(event.target===this)this.style.display='none'">
+  <div class="box">
+    <h3><span id="vpath"></span><span class="filelink" onclick="document.getElementById('viewer').style.display='none'">✕ close</span></h3>
+    <pre id="vbody"></pre>
+  </div>
+</div>
 <div id="streamwrap">
   <div id="streambar">
     <h2>EVENT STREAM</h2>
@@ -116,6 +140,15 @@ async function api(path, body){
   return r.json();
 }
 function escapeHtml(t){ const d=document.createElement("div"); d.textContent=t; return d.innerHTML; }
+function linkify(escaped, agent){
+  // file-looking tokens become viewer links; agent-relative paths get the
+  // agent's workspace prefix (shared/ paths are already workspace-relative)
+  return escaped.replace(/(?:[\w.-]+\/)*[\w.-]+\.(?:md|json|py|txt)\b/g, m => {
+    const full = m.startsWith("shared/") || AGENTS.some(a => m.startsWith(a + "/"))
+      ? m : `${agent}/${m}`;
+    return `<span class="filelink" onclick="openFile('${full.replace(/'/g,"")}')">${m}</span>`;
+  });
+}
 
 function card(agent){
   const sliders = STRESSORS.map(k => `
@@ -137,6 +170,7 @@ function card(agent){
       <div class="fill" id="load-${agent}" style="width:0%"></div>
       <div class="tick" style="left:55%"></div><div class="tick" style="left:75%"></div>
     </div>
+    <svg class="spark" id="spark-${agent}" viewBox="0 0 200 26" preserveAspectRatio="none"></svg>
     <div class="goal" id="goal-${agent}">…</div>
     <div class="thought" id="th-${agent}"></div>
     <div class="row">
@@ -173,6 +207,7 @@ async function refresh(){
       el("cyc-"+a).textContent = "cycle " + st.cycle;
       el("load-"+a).style.width = (st.suffering.load*100) + "%";
       el("dots-"+a).textContent = (st.recent_outcomes||[]).map(o => OUTCOME_GLYPH[o]||"⚪").join("");
+      drawSpark(a, st.load_history || []);
       el("card-"+a).classList.toggle("suspended", st.suspended);
       el("btn-sus-"+a).textContent = st.suspended ? "resume" : "suspend";
       suspended[a] = st.suspended;
@@ -192,9 +227,59 @@ async function refresh(){
     el("ambient").textContent = (s._world && s._world.last_ambient) ? "🌫 " + s._world.last_ambient : "";
     lastEvents = await api("/events?n=120");
     renderFeed(lastEvents);
+    drawPeers(await api("/peergraph"));
   } catch (err) {
     el("conn").textContent = "○ unreachable"; el("conn").style.color = "var(--bad)";
   }
+}
+
+function drawSpark(agent, hist){
+  const svg = el("spark-"+agent);
+  if (!hist.length){ svg.innerHTML = ""; return; }
+  const n = hist.length, w = 200, h = 26, pad = 2;
+  const x = i => n === 1 ? w/2 : pad + i * (w - 2*pad) / (n - 1);
+  const y = v => h - pad - v * (h - 2*pad);
+  const pts = hist.map((v,i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  svg.innerHTML =
+    `<line x1="0" y1="${y(0.75)}" x2="${w}" y2="${y(0.75)}" stroke="var(--bad)" stroke-opacity=".35" stroke-dasharray="3,3"/>` +
+    `<polyline points="${pts}" fill="none" stroke="var(--c-${agent})" stroke-width="1.6"/>` +
+    `<circle cx="${x(n-1)}" cy="${y(hist[n-1])}" r="2.2" fill="var(--c-${agent})"/>`;
+}
+
+function drawPeers(counts){
+  const pos = {scout: 60, analyst: 260, builder: 460};
+  let edges = "";
+  for (const [key, n] of Object.entries(counts || {})){
+    const [from, to] = key.split("->");
+    if (!(from in pos) || !(to in pos)) continue;
+    const x1 = pos[from], x2 = pos[to];
+    const up = x1 < x2 ? -1 : 1;  // rightward arcs above, leftward below
+    const mid = (x1 + x2) / 2, cy = 17 + up * 14;
+    const wdt = Math.min(4, 0.8 + n * 0.4);
+    edges += `<path d="M ${x1} 17 Q ${mid} ${cy} ${x2} 17" fill="none" stroke="var(--c-${from})" stroke-width="${wdt}" stroke-opacity=".7" marker-end="url(#arr-${from})"/>` +
+             `<text x="${mid}" y="${17 + up * 12}" fill="var(--c-${from})" font-size="9" text-anchor="middle">${n}</text>`;
+  }
+  const defs = AGENTS.map(a =>
+    `<marker id="arr-${a}" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto">` +
+    `<path d="M0,0 L6,3 L0,6 z" fill="var(--c-${a})"/></marker>`).join("");
+  const nodes = AGENTS.map(a =>
+    `<circle cx="${pos[a]}" cy="17" r="4" fill="var(--c-${a})"/>` +
+    `<text x="${pos[a]}" y="10" fill="var(--c-${a})" font-size="9" text-anchor="middle">${a}</text>`).join("");
+  el("peersvg").innerHTML = `<defs>${defs}</defs>${edges}${nodes}`;
+  el("peernote").textContent = Object.keys(counts || {}).length ? "" : "no peer reads yet";
+}
+
+async function openFile(path){
+  const r = await api("/file?path=" + encodeURIComponent(path));
+  el("vpath").textContent = r.path || path;
+  el("vbody").textContent = r.content !== undefined ? r.content : (r.error || "unreadable");
+  el("viewer").style.display = "flex";
+}
+
+async function provoke(){
+  const r = await api("/world", {});
+  if (r.event) el("ambient").textContent = "🌫 " + r.event;
+  refresh();
 }
 
 function evClass(e){
@@ -222,7 +307,7 @@ function renderFeed(events){
     return `<div class="${evClass(e)}" style="border-left-color:${color}">` +
       `<span class="t">${(e.ts||"").slice(11,19)}</span> ` +
       `<span class="who" style="color:${color}">${e.agent}</span> ` +
-      `<span class="k">${e.kind}</span> ${gutter}<span class="d">${escapeHtml(e.detail||"")}</span></div>`;
+      `<span class="k">${e.kind}</span> ${gutter}<span class="d">${linkify(escapeHtml(e.detail||""), e.agent)}</span></div>`;
   }).join("");
   feed.innerHTML = html;
   // celebrate fresh completions with a card glow (once per event timestamp)

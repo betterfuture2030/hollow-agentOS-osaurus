@@ -4,6 +4,9 @@ GET  /health          -> {"ok": true}
 GET  /state           -> per-agent cycle/suffering/goal snapshot
 GET  /events?n=50     -> recent event stream entries
 GET  /panel           -> the operator panel UI (panel.html)
+GET  /file?path=...   -> read-only workspace file contents (panel viewer)
+GET  /peergraph       -> who-read-whom counts from recent peer_read events
+POST /world           {}  -- provoke an ambient event right now
 POST /inject          {"agent": "scout", "message": "..."}
 POST /suspend         {"agent": "scout"}
 POST /resume          {"agent": "scout"}
@@ -58,6 +61,27 @@ def make_handler(habitat):
                     self._send_html(200, PANEL_PATH.read_text(encoding="utf-8"))
                 else:
                     self._send(404, {"error": "panel.html not found"})
+            elif parsed.path == "/file":
+                rel = parse_qs(parsed.query).get("path", [""])[0].strip().lstrip("/")
+                root = habitat.memory.workspace.resolve()
+                target = (root / rel).resolve()
+                if not rel or not str(target).startswith(str(root) + "/"):
+                    return self._send(400, {"error": "path escapes the workspace"})
+                if not target.is_file():
+                    return self._send(404, {"error": f"no such file: {rel}"})
+                self._send(200, {
+                    "path": rel,
+                    "content": target.read_text(encoding="utf-8", errors="replace")[:40000],
+                })
+            elif parsed.path == "/peergraph":
+                counts = {}
+                for e in habitat.memory.recent_events(500):
+                    if e.get("kind") != "peer_read" or " by " not in e.get("detail", ""):
+                        continue
+                    author = e["detail"].rsplit(" by ", 1)[1].strip()
+                    key = f"{e['agent']}->{author}"
+                    counts[key] = counts.get(key, 0) + 1
+                self._send(200, counts)
             else:
                 self._send(404, {"error": "unknown endpoint"})
 
@@ -73,6 +97,8 @@ def make_handler(habitat):
                     return self._send(400, {"error": "nuke requires {\"confirm\": true}"})
                 habitat.nuke()
                 return self._send(200, {"ok": True, "detail": "world reset"})
+            if self.path == "/world":
+                return self._send(200, {"ok": True, "event": habitat.provoke_world()})
 
             agent = payload.get("agent", "")
             if agent not in AGENT_NAMES:

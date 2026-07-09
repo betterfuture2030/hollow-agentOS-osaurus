@@ -14,7 +14,7 @@ call is the earned `research_topic` capability (config kill-switch:
 full credit to ninjahawk).
 
 - Local checkout: `/Users/peterlowes/Code/workspace/hollow-agentsOS-Osaurus`
-- Remote: `https://github.com/betterfuture2030/hollow-osaurus-.git`, branch `main`
+- Remote: `https://github.com/betterfuture2030/hollow-agentOS-osaurus.git`, branch `main`
 - Target machine: MacBook Pro, Apple Silicon, **24 GB unified memory**
 
 ## Repo layout
@@ -66,7 +66,7 @@ full credit to ninjahawk).
   tests/
     stub_osaurus.py         fake /v1/models + /v1/chat/completions with scripted
                             plans — lets the whole habitat run with no model
-    test_cycle.py           71-check end-to-end test (run: python3 tests/test_cycle.py)
+    test_cycle.py           76-check end-to-end test (run: python3 tests/test_cycle.py)
 ```
 
 ## Tech stack and conventions
@@ -89,7 +89,7 @@ full credit to ninjahawk).
 - **State is jsonl/json under `memory/`**; goal registry lines are full
   snapshots — last line per id wins. **Runtime state is never committed.**
 - **Tunable constants sit at module tops** — change them there, not inline.
-- **Testing needs no model**: `.venv/bin/python tests/test_cycle.py` (71
+- **Testing needs no model**: `.venv/bin/python tests/test_cycle.py` (76
   plain-assert checks against the stub). Keep it green; extend the stub's
   scripted plans when adding mechanics.
 - **Every mechanic must be perceivable.** The hard-won rule of this project:
@@ -156,8 +156,7 @@ synthesize_capability, real research_topic, MCP bridge — July 2026). Open:
    parallel session).
 2. Consider extending `_futility_check` to near-duplicates of *completed*
    goals (observed: agents occasionally re-adopt finished work).
-3. Housekeeping: the remote repo name has a trailing `-`
-   (`hollow-osaurus-`); rename + update README clone URL if desired.
+3. ~~Housekeeping: repo rename~~ — done (`hollow-agentOS-osaurus`, July 2026).
 
 ## History
 

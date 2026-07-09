@@ -80,6 +80,7 @@ class Habitat:
         self.last_ambient = None
         self.last_thought = {a: None for a in AGENT_NAMES}
         self.completions = {a: 0 for a in AGENT_NAMES}
+        self.load_history = {a: [] for a in AGENT_NAMES}  # per-cycle load, panel sparkline
         self._stop = threading.Event()
 
     # -- controls (used by the API server) ------------------------------
@@ -135,6 +136,7 @@ class Habitat:
         self.last_ambient = None
         self.last_thought = {a: None for a in AGENT_NAMES}
         self.completions = {a: 0 for a in AGENT_NAMES}
+        self.load_history = {a: [] for a in AGENT_NAMES}
         for a in AGENT_NAMES:
             self.memory.event(a, "control", "world reset by operator (nuke)")
         self.suspended.clear()
@@ -159,10 +161,19 @@ class Habitat:
                 "recent_outcomes": self.outcomes[a][-OUTCOME_WINDOW:],
                 "last_thought": self.last_thought[a],
                 "completions": self.completions[a],
+                "load_history": self.load_history[a][-40:],
                 "claude_pending": len(self.bridge.pending(a)),
             }
         out["_world"] = {"last_ambient": self.last_ambient}
         return out
+
+    def provoke_world(self) -> str:
+        """Operator button: the world does something right now."""
+        event = self.world.draw_event()
+        self.pending_ambient = {a: event for a in AGENT_NAMES}
+        self.last_ambient = event
+        self.memory.event("world", "ambient", event)
+        return event
 
     # -- perception helpers ---------------------------------------------
     def _workspace_listing(self, agent):
@@ -438,6 +449,7 @@ class Habitat:
             self.suffering[agent].ease("stagnation", STAGNATION_EASE_ON_SUCCESS)
             self.suffering[agent].ease("futility", FUTILITY_EASE_ON_SUCCESS)
         self.outcomes[agent] = (self.outcomes[agent] + [outcome])[-12:]
+        self.load_history[agent] = (self.load_history[agent] + [self.suffering[agent].load])[-60:]
         self.memory.event(
             agent, "cycle", f"cycle {cycle} ends: {outcome}, load {self.suffering[agent].load}"
         )

@@ -429,6 +429,25 @@ def main():
                    json={"agent": "scout", "kind": "stagnation", "severity": 0}).json()
     check("/stressor at zero resolves the stressor",
           r["ok"] and "stagnation" not in r["suffering"]["stressors"], str(r))
+    # --- panel v3 endpoints -------------------------------------------------
+    (habitat.memory.workspace / "shared" / "peek.md").write_text("visible to the operator " * 8)
+    fr = httpx.get(f"{api}/file", params={"path": "shared/peek.md"}).json()
+    check("/file serves workspace files read-only",
+          "visible to the operator" in fr.get("content", ""), str(fr)[:120])
+    esc = httpx.get(f"{api}/file", params={"path": "../config.json"})
+    check("/file rejects workspace escapes", esc.status_code == 400)
+    wr = httpx.post(f"{api}/world", json={}).json()
+    check("/world provokes an ambient event",
+          wr["ok"] and all(habitat.pending_ambient[a] == wr["event"] for a in AGENT_NAMES), str(wr)[:120])
+    habitat.caps.dispatch("builder", "fs_write",
+                          {"path": "shared/graph-probe.md", "content": "x" * 130})
+    habitat.caps.dispatch("scout", "fs_read", {"path": "shared/graph-probe.md"})  # peer read
+    pg = httpx.get(f"{api}/peergraph").json()
+    check("/peergraph counts who read whom",
+          pg.get("scout->builder", 0) >= 1, str(pg))
+    check("/state carries load history for sparklines",
+          isinstance(httpx.get(f"{api}/state").json()["scout"]["load_history"], list))
+
     bad = httpx.post(f"{api}/nuke", json={})
     check("/nuke refuses without confirm", bad.status_code == 400)
     httpx.post(f"{api}/nuke", json={"confirm": True})
