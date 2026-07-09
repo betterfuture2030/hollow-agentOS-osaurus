@@ -39,6 +39,10 @@ Rules:
   verifiable from the artifact alone (e.g. "a synthesis citing at least 3
   specific observations"). Never mere file existence, empty structures, or
   procedural sequencing your future self must remember.
+- A goal can ONLY complete if at least one of its steps WROTE something
+  (fs_write, fs_edit, memory_set, propose_change, invoke_claude). Reading
+  alone never validates — frame analysis/audit goals around the artifact
+  they produce, not the reading they require.
 - Do not repeat goals you already completed. When peers have shared
   artifacts, prefer goals that read or build on them — reading peers' work
   is also what cures invisibility.
