@@ -31,6 +31,7 @@ class Habitat:
             osa["default_model"],
             osa.get("fallback_model", ""),
             osa.get("timeout_seconds", 180),
+            log_path=self.memory.dir / "llm_log.jsonl",
         )
         self.lessons = Lessons(self.memory)
         self.bridge = ClaudeBridge(self.memory)
