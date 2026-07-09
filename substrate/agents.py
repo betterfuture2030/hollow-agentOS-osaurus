@@ -31,6 +31,10 @@ OUTPUT_SPEC = """OUTPUT STRICT JSON, nothing else, matching exactly:
 }
 Rules:
 - "goal" is required only when action is "new_goal". Omit it otherwise.
+- While a goal is ACTIVE, "new_goal" is invalid and will be ignored. Your
+  only choices are "continue" (work it), "abandon_goal" (pay the futility
+  cost and free yourself), or "idle". To replace a goal: abandon first,
+  adopt the new one next cycle.
 - success_criteria must describe the SUBSTANCE of the finished outcome,
   verifiable from the artifact alone (e.g. "a synthesis citing at least 3
   specific observations"). Never mere file existence, empty structures, or
