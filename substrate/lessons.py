@@ -11,6 +11,11 @@ import threading
 from .memory import Memory, now_iso, read_json, write_json
 
 JACCARD_THRESHOLD = 0.55
+# Retraction is an operator veto, so it matches more loosely than dedupe:
+# a vetoed belief re-derived in fresh words (observed live at 0.54 vs the
+# 0.55 dedupe threshold) must still be blocked. Over-blocking near a vetoed
+# idea is safer than letting the idea mutate past the filter.
+RETRACTED_JACCARD_THRESHOLD = 0.4
 FAST_TRACK_CATEGORIES = {"environment", "constraints"}
 TOKEN_RE = re.compile(r"[a-z0-9_]+")
 
@@ -65,7 +70,7 @@ class Lessons:
             return None
         with self._lock:
             for dead in self._retracted():
-                if jaccard(dead, text) >= JACCARD_THRESHOLD:
+                if jaccard(dead, text) >= RETRACTED_JACCARD_THRESHOLD:
                     return None  # operator-retracted; never re-promotes
             promoted = self._promoted()
             for lesson in promoted:

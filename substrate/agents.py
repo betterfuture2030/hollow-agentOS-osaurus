@@ -49,9 +49,11 @@ Rules:
   unachievable — not a free reroll. A validation failure is not that: you
   have 5 attempts, and "why_validation_last_failed" tells you exactly what
   to fix. Repair the artifact before you consider walking away.
-- action "idle" means you deliberately do nothing this cycle. Idling never
-  reduces any stressor; cycles with at least one successful step ease
-  stagnation. Idling with no active goal breeds purposelessness."""
+- action "idle" means you deliberately do nothing this cycle. Idling NEVER
+  reduces any stressor. Cycles with at least one successful step ease
+  stagnation AND futility — even a locked agent can always act through
+  fs_read, fs_list, memory_set/get and llm_chat, and that is the only way
+  load comes down. Idling with no active goal breeds purposelessness."""
 
 
 def goal_selection_prompt(agent, ctx):
