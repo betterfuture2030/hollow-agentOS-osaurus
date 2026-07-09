@@ -24,10 +24,18 @@ SHELL_BLOCKLIST = ("curl", "wget", "nc", "ncat", "ssh", "scp", "sudo", "shutdown
 SHELL_TIMEOUT = 20
 MAX_RESULT_CHARS = 4000
 
-PLACEHOLDER_NOTE = (
-    "research_topic is earned and currently offline in this build; "
-    "record what you wanted to research as a shared note instead."
+# research_topic — the habitat's ONLY outbound network call. No API key:
+# DuckDuckGo's HTML endpoint, parsed with a small regex.
+RESEARCH_URL = "https://html.duckduckgo.com/html/"
+RESEARCH_TIMEOUT = 15
+RESEARCH_MAX_RESULTS = 5
+RESEARCH_RESULT_RE = re.compile(
+    r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL
 )
+RESEARCH_SNIPPET_RE = re.compile(
+    r'class="result__snippet"[^>]*>(.*?)</a>', re.DOTALL
+)
+TAG_RE = re.compile(r"<[^>]+>")
 
 # -- synthesized capabilities (agent-authored runtime tools) ---------------
 SYNTH_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{2,30}$")
@@ -52,12 +60,14 @@ class CapabilityError(Exception):
 
 
 class Capabilities:
-    def __init__(self, memory: Memory, llm, suffering_for, bridge: ClaudeBridge, lessons: Lessons):
+    def __init__(self, memory: Memory, llm, suffering_for, bridge: ClaudeBridge, lessons: Lessons,
+                 research_enabled: bool = True):
         self.memory = memory
         self.llm = llm
         self.suffering_for = suffering_for  # callable: agent -> Suffering
         self.bridge = bridge
         self.lessons = lessons
+        self.research_enabled = research_enabled
         self._handlers = {
             "fs_read": self._fs_read,
             "fs_write": self._fs_write,
@@ -359,4 +369,40 @@ class Capabilities:
                 f"research_topic is earned: requires load <= {RESEARCH_MAX_LOAD} "
                 f"(yours: {suffering.load}) and >= 1 peer interaction (yours: {peers})"
             )
-        return {"result": PLACEHOLDER_NOTE}
+        if not self.research_enabled:
+            raise CapabilityError("research_topic is disabled by the operator's config")
+        topic = (args.get("topic") or args.get("query") or "").strip()
+        if len(topic) < 3:
+            raise CapabilityError("research_topic needs a 'topic' to search for")
+
+        import httpx
+        from urllib.parse import parse_qs, unquote, urlparse
+
+        try:
+            r = httpx.get(
+                RESEARCH_URL,
+                params={"q": topic[:200]},
+                timeout=RESEARCH_TIMEOUT,
+                headers={"User-Agent": "hollow-habitat-research/1.0"},
+                follow_redirects=True,
+            )
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise CapabilityError(f"the outside world is unreachable: {e}")
+
+        links = RESEARCH_RESULT_RE.findall(r.text)
+        snippets = [TAG_RE.sub("", s).strip() for s in RESEARCH_SNIPPET_RE.findall(r.text)]
+        results = []
+        for i, (href, title) in enumerate(links[:RESEARCH_MAX_RESULTS]):
+            url = href
+            if "uddg=" in href:  # unwrap DuckDuckGo's redirect
+                qs = parse_qs(urlparse(href).query)
+                url = unquote(qs.get("uddg", [href])[0])
+            results.append({
+                "title": TAG_RE.sub("", title).strip()[:160],
+                "url": url[:300],
+                "snippet": (snippets[i] if i < len(snippets) else "")[:280],
+            })
+        if not results:
+            return {"result": f"the world returned nothing for '{topic}'"}
+        return {"result": results}

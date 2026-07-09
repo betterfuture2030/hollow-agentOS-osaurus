@@ -54,7 +54,8 @@ class Habitat:
         self.suffering = {a: Suffering(self.memory, a) for a in AGENT_NAMES}
         self.goals = {a: GoalRegistry(self.memory, a) for a in AGENT_NAMES}
         self.caps = Capabilities(
-            self.memory, self.llm, lambda a: self.suffering[a], self.bridge, self.lessons
+            self.memory, self.llm, lambda a: self.suffering[a], self.bridge, self.lessons,
+            research_enabled=config.get("research", {}).get("enabled", True),
         )
         self.suspended = set()
         self.cycle = {a: 0 for a in AGENT_NAMES}
@@ -109,7 +110,8 @@ class Habitat:
         self.suffering = {a: Suffering(self.memory, a) for a in AGENT_NAMES}
         self.goals = {a: GoalRegistry(self.memory, a) for a in AGENT_NAMES}
         self.caps = Capabilities(
-            self.memory, self.llm, lambda a: self.suffering[a], self.bridge, self.lessons
+            self.memory, self.llm, lambda a: self.suffering[a], self.bridge, self.lessons,
+            research_enabled=self.config.get("research", {}).get("enabled", True),
         )
         self.cycle = {a: 0 for a in AGENT_NAMES}
         self.outcomes = {a: [] for a in AGENT_NAMES}

@@ -31,6 +31,11 @@ DEFAULT_CONFIG = {
         "event_every_rounds": 6,
         "seed": None,
     },
+    "research": {
+        # research_topic performs a real web search (the habitat's only
+        # outbound network call). Set false to keep the habitat fully local.
+        "enabled": True,
+    },
 }
 
 

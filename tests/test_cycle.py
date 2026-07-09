@@ -341,6 +341,19 @@ def main():
           gone["ok"] and "add_numbers" not in habitat.caps.names("builder")
           and not habitat.caps.dispatch("builder", "add_numbers", {})["ok"])
 
+    # --- research_topic: earned gate + config toggle (no network in tests) -
+    habitat.suffering["builder"].raise_stressor("stagnation", 0.5, "test")
+    gated = habitat.caps.dispatch("builder", "research_topic", {"topic": "anything"})
+    check("research_topic stays earned (load gate)",
+          not gated["ok"] and "earned" in gated["error"], str(gated))
+    habitat.suffering["builder"].resolve("stagnation")
+    habitat.memory.kv_set("builder", "peer_interactions", 2)
+    habitat.caps.research_enabled = False
+    off = habitat.caps.dispatch("builder", "research_topic", {"topic": "anything"})
+    check("research_topic honors the config kill-switch",
+          not off["ok"] and "disabled" in off["error"], str(off))
+    habitat.caps.research_enabled = True
+
     # --- operator panel endpoints -----------------------------------------
     panel = httpx.get(f"{api}/panel")
     check("/panel serves the operator UI",
