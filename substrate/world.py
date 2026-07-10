@@ -14,21 +14,22 @@ from .memory import Memory
 # One event roughly every N scheduler rounds (0 disables the world).
 DEFAULT_EVENT_EVERY_ROUNDS = 6
 
+# (flavor, text) — the flavor drives the operator panel's atmosphere layer
 WEATHER = (
-    "A dry wind moves through the workspace; loose notes rustle.",
-    "A low fog settles between the directories. Everything sounds farther away.",
-    "Static rain. Brief, bright, gone. The files are unharmed but feel washed.",
-    "The light in the habitat turns amber for a while, like late afternoon.",
-    "A long silence — even the substrate's hum pauses, then resumes.",
-    "Heat shimmer over the shared workspace; paths look slightly bent.",
+    ("wind", "A dry wind moves through the workspace; loose notes rustle."),
+    ("fog", "A low fog settles between the directories. Everything sounds farther away."),
+    ("rain", "Static rain. Brief, bright, gone. The files are unharmed but feel washed."),
+    ("amber", "The light in the habitat turns amber for a while, like late afternoon."),
+    ("silence", "A long silence — even the substrate's hum pauses, then resumes."),
+    ("heat", "Heat shimmer over the shared workspace; paths look slightly bent."),
 )
 
 OBJECTS = (
-    "A small carved stone has appeared near your files. It was not there before.",
-    "Someone — or something — left a length of blue thread across the workspace root.",
-    "A key without a lock rests in the corner of the shared directory.",
-    "There is a faint chalk circle around the memory store this cycle.",
-    "An empty picture frame leans against the workspace wall, facing out.",
+    ("object", "A small carved stone has appeared near your files. It was not there before."),
+    ("object", "Someone — or something — left a length of blue thread across the workspace root."),
+    ("object", "A key without a lock rests in the corner of the shared directory."),
+    ("object", "There is a faint chalk circle around the memory store this cycle."),
+    ("object", "An empty picture frame leans against the workspace wall, facing out."),
 )
 
 ECHO_PREFIX = "An echo drifts through the habitat, a memory of something that happened here: "
@@ -53,13 +54,18 @@ class World:
         fragment = str(e["detail"])[:ECHO_MAX_CHARS]
         return f"{ECHO_PREFIX}\"{fragment}\" ({e.get('agent', 'someone')}, long ago)"
 
-    def draw_event(self) -> str:
-        """Draw one ambient event. Echoes need history; fall back to weather."""
-        flavor = self.rng.choice(("weather", "echo", "object"))
-        if flavor == "echo":
+    def draw(self):
+        """Draw one ambient event as (flavor, text). Echoes need history;
+        fall back to weather."""
+        kind = self.rng.choice(("weather", "echo", "object"))
+        if kind == "echo":
             echo = self._echo()
             if echo:
-                return echo
-            flavor = "weather"
-        pool = WEATHER if flavor == "weather" else OBJECTS
+                return "echo", echo
+            kind = "weather"
+        pool = WEATHER if kind == "weather" else OBJECTS
         return self.rng.choice(pool)
+
+    def draw_event(self) -> str:
+        """Back-compat: just the text."""
+        return self.draw()[1]

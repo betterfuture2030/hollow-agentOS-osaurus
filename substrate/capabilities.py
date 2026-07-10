@@ -196,7 +196,10 @@ class Capabilities:
             raise CapabilityError(f"no such file: {args.get('path')}")
         find, replace = args.get("find", ""), args.get("replace", "")
         if not find:
-            raise CapabilityError("fs_edit needs a non-empty 'find' string")
+            raise CapabilityError(
+                "fs_edit needs a non-empty 'find' string — to APPEND to a file, "
+                "use fs_write with \"append\": true instead"
+            )
         text = path.read_text(encoding="utf-8")
         if find not in text:
             raise CapabilityError("'find' string not present in file")

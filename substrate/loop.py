@@ -81,6 +81,7 @@ class Habitat:
         self.last_thought = {a: None for a in AGENT_NAMES}
         self.completions = {a: 0 for a in AGENT_NAMES}
         self.load_history = {a: [] for a in AGENT_NAMES}  # per-cycle load, panel sparkline
+        self.active = None  # {"agent", "since"} while a cycle is executing
         self._stop = threading.Event()
 
     # -- controls (used by the API server) ------------------------------
@@ -137,6 +138,7 @@ class Habitat:
         self.last_thought = {a: None for a in AGENT_NAMES}
         self.completions = {a: 0 for a in AGENT_NAMES}
         self.load_history = {a: [] for a in AGENT_NAMES}
+        self.active = None
         for a in AGENT_NAMES:
             self.memory.event(a, "control", "world reset by operator (nuke)")
         self.suspended.clear()
@@ -164,14 +166,15 @@ class Habitat:
                 "load_history": self.load_history[a][-40:],
                 "claude_pending": len(self.bridge.pending(a)),
             }
-        out["_world"] = {"last_ambient": self.last_ambient}
+        out["_world"] = {"last_ambient": self.last_ambient, "every_rounds": self.world_every}
+        out["_activity"] = self.active
         return out
 
     def provoke_world(self) -> str:
         """Operator button: the world does something right now."""
-        event = self.world.draw_event()
+        flavor, event = self.world.draw()
         self.pending_ambient = {a: event for a in AGENT_NAMES}
-        self.last_ambient = event
+        self.last_ambient = {"text": event, "flavor": flavor, "t": time.time()}
         self.memory.event("world", "ambient", event)
         return event
 
@@ -279,6 +282,8 @@ class Habitat:
             return
         self.cycle[agent] += 1
         cycle = self.cycle[agent]
+        self.memory.note_cycle(agent, cycle)
+        self.active = {"agent": agent, "since": time.time()}
         self.memory.event(agent, "cycle", f"cycle {cycle} begins")
 
         host_messages = self.memory.drain_host_messages(agent)
@@ -453,6 +458,7 @@ class Habitat:
         self.memory.event(
             agent, "cycle", f"cycle {cycle} ends: {outcome}, load {self.suffering[agent].load}"
         )
+        self.active = None
 
     def run(self, max_rounds=None, interval=None):
         if interval is None:
@@ -460,9 +466,9 @@ class Habitat:
         rounds = 0
         while not self._stop.is_set():
             if self.world_every and rounds and rounds % self.world_every == 0:
-                event = self.world.draw_event()
+                flavor, event = self.world.draw()
                 self.pending_ambient = {a: event for a in AGENT_NAMES}
-                self.last_ambient = event
+                self.last_ambient = {"text": event, "flavor": flavor, "t": time.time()}
                 self.memory.event("world", "ambient", event)
             for agent in AGENT_NAMES:
                 if self._stop.is_set():

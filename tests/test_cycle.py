@@ -448,6 +448,30 @@ def main():
     check("/state carries load history for sparklines",
           isinstance(httpx.get(f"{api}/state").json()["scout"]["load_history"], list))
 
+    # --- panel v4: cycles on events, flavored world, lessons/artifacts -----
+    ev_with_cycle = [e for e in habitat.memory.recent_events(30)
+                     if e["agent"] in AGENT_NAMES and "cycle" in e]
+    check("events carry their cycle number", len(ev_with_cycle) > 0)
+    st = httpx.get(f"{api}/state").json()
+    check("/state exposes world flavor and activity",
+          st["_world"]["last_ambient"] is None or "flavor" in st["_world"]["last_ambient"],
+          str(st["_world"]))
+    check("/state has an _activity slot", "_activity" in st)
+    httpx.post(f"{api}/world", json={})
+    st2 = httpx.get(f"{api}/state").json()
+    check("provoked world event carries a flavor",
+          st2["_world"]["last_ambient"] and st2["_world"]["last_ambient"].get("flavor"),
+          str(st2["_world"]))
+    lessons_resp = httpx.get(f"{api}/lessons").json()
+    check("/lessons returns the promoted rules", isinstance(lessons_resp, list))
+    arts = httpx.get(f"{api}/artifacts").json()
+    check("/artifacts lists shared files with authorship",
+          any(a["path"] == "shared/graph-probe.md" and a["author"] == "builder" for a in arts),
+          str(arts)[:200])
+    panel_v4 = (Path(__file__).resolve().parent.parent / "panel.html").read_text()
+    check("panel carries v4 surfaces (sky, ticker, dial, shelf)",
+          all(f'id="{i}"' in panel_v4 for i in ("sky", "ticker", "worlddial", "shelf", "rules")))
+
     bad = httpx.post(f"{api}/nuke", json={})
     check("/nuke refuses without confirm", bad.status_code == 400)
     httpx.post(f"{api}/nuke", json={"confirm": True})

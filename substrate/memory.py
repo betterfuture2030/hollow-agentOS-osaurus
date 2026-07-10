@@ -67,6 +67,9 @@ class Memory:
         self.dir = self.root / "memory"
         self.workspace = self.root / "workspace"
         self._lock = threading.Lock()
+        # current cycle per agent, noted by the loop so every event emitted
+        # during a cycle (incl. capability events from dispatch) carries it
+        self._cycles = {}
         for agent in AGENT_NAMES:
             (self.dir / "goals" / agent).mkdir(parents=True, exist_ok=True)
             (self.workspace / agent).mkdir(parents=True, exist_ok=True)
@@ -101,12 +104,15 @@ class Memory:
             },
         )
 
+    def note_cycle(self, agent: str, cycle: int) -> None:
+        self._cycles[agent] = cycle
+
     def event(self, agent: str, kind: str, detail: str) -> None:
-        append_jsonl(
-            self.dir / "events.jsonl",
-            {"ts": now_iso(), "t": time.time(), "agent": agent, "kind": kind,
-             "detail": detail[:EVENT_DETAIL_CHARS]},
-        )
+        record = {"ts": now_iso(), "t": time.time(), "agent": agent, "kind": kind,
+                  "detail": detail[:EVENT_DETAIL_CHARS]}
+        if agent in self._cycles:
+            record["cycle"] = self._cycles[agent]
+        append_jsonl(self.dir / "events.jsonl", record)
 
     def recent_events(self, n: int = 50):
         return read_jsonl(self.dir / "events.jsonl")[-n:]

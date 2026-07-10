@@ -73,6 +73,24 @@ def make_handler(habitat):
                     "path": rel,
                     "content": target.read_text(encoding="utf-8", errors="replace")[:40000],
                 })
+            elif parsed.path == "/lessons":
+                self._send(200, habitat.lessons._promoted())
+            elif parsed.path == "/artifacts":
+                manifest = habitat.memory.shared_manifest()
+                shared = habitat.memory.workspace / "shared"
+                out = []
+                for p in sorted(shared.rglob("*"), key=lambda q: q.stat().st_mtime, reverse=True):
+                    if not p.is_file():
+                        continue
+                    rel = "shared/" + str(p.relative_to(shared))
+                    out.append({
+                        "path": rel,
+                        "name": p.name,
+                        "author": manifest.get(rel, {}).get("author"),
+                        "mtime": p.stat().st_mtime,
+                        "size": p.stat().st_size,
+                    })
+                self._send(200, out[:40])
             elif parsed.path == "/peergraph":
                 counts = {}
                 for e in habitat.memory.recent_events(500):
