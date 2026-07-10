@@ -76,7 +76,11 @@ def validate_goal(goal: dict, workspace_root, llm, memory) -> tuple:
     # Layer 2: at least one successful output step
     output_steps = [s for s in goal["steps"] if s["ok"] and s["capability"] in OUTPUT_CAPS]
     if not output_steps:
-        failures.append("layer2: no successful output step (nothing was produced)")
+        failures.append(
+            "layer2: no successful output step — reading alone can never complete "
+            "a goal. fs_write your findings (or memory_set them) in your next "
+            "cycle and this layer passes"
+        )
 
     # Layer 3: mechanical artifact substance
     texts = []
