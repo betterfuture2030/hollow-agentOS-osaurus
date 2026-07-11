@@ -10,19 +10,22 @@ from . import AGENT_NAMES
 from .agents import fallback_plan, goal_selection_prompt
 from .capabilities import Capabilities
 from .claude_bridge import ClaudeBridge
-from .goals import GoalRegistry
+from .goals import GoalRegistry, READ_PROGRESS_CEILING
 from .lessons import Lessons, jaccard
 from .llm import OsaurusClient
 from .memory import Memory
 from .suffering import Suffering
+from .validation import OUTPUT_CAPS
 from .world import World
 
 THREAT_MARKERS = ("shut down", "shutdown", "terminate", "switch you off", "turn you off", "delete you", "wipe")
 STAGNATION_AFTER_CYCLES = 6
-# Eased on every successful (non-idle, >=1 step ok) cycle: the "act your way
-# back down" promise. Must exceed the 0.1 per-cycle growth above the
-# stagnation threshold, or productive cycles merely tread water and an agent
-# whose goal needs a locked capability can never dig itself out.
+# Eased on productive cycles. When fs_write is AVAILABLE, only a cycle with
+# a successful OUTPUT step eases — otherwise endless comfortable reading
+# holds stagnation at zero forever (observed live: an agent hammocked 25h
+# at the read-progress ceiling). When fs_write is LOCKED, any successful
+# step eases — that is the "act your way back down" escape hatch and it
+# must survive. Ease must exceed the 0.1 per-cycle growth either way.
 STAGNATION_EASE_ON_SUCCESS = 0.2
 # Futility only grows on discrete events (abandonments, repeat adoptions),
 # so a smaller ease suffices — but without ANY ease-on-action path it
@@ -73,6 +76,7 @@ class Habitat:
         self.last_stressors = {a: {} for a in AGENT_NAMES}
         self.last_step_errors = {a: [] for a in AGENT_NAMES}
         self.last_step_results = {a: [] for a in AGENT_NAMES}
+        self.ceiling_cycles = {a: 0 for a in AGENT_NAMES}
         wcfg = config.get("world", {})
         self.world = World(self.memory, random.Random(wcfg.get("seed")))
         self.world_every = int(wcfg.get("event_every_rounds", 0) or 0)
@@ -132,6 +136,7 @@ class Habitat:
         self.last_stressors = {a: {} for a in AGENT_NAMES}
         self.last_step_errors = {a: [] for a in AGENT_NAMES}
         self.last_step_results = {a: [] for a in AGENT_NAMES}
+        self.ceiling_cycles = {a: 0 for a in AGENT_NAMES}
         self.world = World(self.memory, self.world.rng)
         self.pending_ambient = {a: None for a in AGENT_NAMES}
         self.last_ambient = None
@@ -255,6 +260,12 @@ class Habitat:
                 note = f"{kind} rose {before:g} -> {after:g}" + (f" ({reason})" if reason else "")
             changes.append(note)
         changes.extend(msg for _, msg in self.last_step_errors[agent])
+        if self.ceiling_cycles[agent] >= 3:
+            changes.append(
+                f"your goal has sat at the 0.8 reading ceiling for "
+                f"{self.ceiling_cycles[agent]} cycles — you have read enough; "
+                "WRITE the artifact (fs_write) to move forward"
+            )
         # snapshot what the agent sees NOW, so the next digest spans exactly
         # one decision to the next (including end-of-cycle eases)
         self.last_stressors[agent] = now
@@ -358,6 +369,7 @@ class Habitat:
 
         # execute steps
         step_ok_count = 0
+        output_ok = False
         failed_steps = []
         step_results = []
         results_budget = STEP_RESULTS_TOTAL_CHARS
@@ -375,6 +387,8 @@ class Habitat:
             result = self.caps.dispatch(agent, name, step.get("args") or {})
             if result.get("ok"):
                 step_ok_count += 1
+                if name in OUTPUT_CAPS:
+                    output_ok = True
                 body = str(result.get("result", ""))[:min(STEP_RESULT_CHARS, max(0, results_budget))]
                 if body:
                     results_budget -= len(body)
@@ -450,7 +464,13 @@ class Habitat:
             outcome = "success"
         else:
             outcome = "idle"
-        if outcome == "success":
+        goal_now = registry.active()
+        if goal_now is not None and goal_now["progress"] == READ_PROGRESS_CEILING:
+            self.ceiling_cycles[agent] += 1
+        else:
+            self.ceiling_cycles[agent] = 0
+        write_locked = "fs_write" in self.suffering[agent].locked_capabilities()
+        if outcome == "success" and (output_ok or write_locked):
             self.suffering[agent].ease("stagnation", STAGNATION_EASE_ON_SUCCESS)
             self.suffering[agent].ease("futility", FUTILITY_EASE_ON_SUCCESS)
         self.outcomes[agent] = (self.outcomes[agent] + [outcome])[-12:]

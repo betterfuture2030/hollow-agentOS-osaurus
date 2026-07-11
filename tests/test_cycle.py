@@ -309,6 +309,41 @@ def main():
           str(habitat.suffering["builder"].stressors))
     habitat.suffering["builder"].resolve("futility")
 
+    # --- the hammock: reading eases nothing while writes are available ------
+    sb2 = habitat.suffering["builder"]
+    sb2.raise_stressor("stagnation", 0.3, "hammock probe")  # load 0.3: unlocked
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": "comfy reading", "action": "continue",
+        "steps": [{"capability": "fs_list", "args": {"path": "."}}]}
+    habitat.run_cycle("builder")
+    after_read = sb2.stressors.get("stagnation", {}).get("severity", 0)
+    check("read-only success does not ease stagnation when writes are available",
+          after_read >= 0.3, str(after_read))
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": "producing", "action": "continue",
+        "steps": [{"capability": "memory_set", "args": {"key": "probe", "value": "x"}}]}
+    habitat.run_cycle("builder")
+    habitat.llm.json_chat = real_json_chat
+    check("output success eases stagnation when unlocked",
+          sb2.stressors.get("stagnation", {}).get("severity", 0) < after_read,
+          str(sb2.stressors.get("stagnation")))
+    sb2.resolve("stagnation")
+
+    # --- ceiling nudge: 3+ cycles pinned at 0.8 speaks up -------------------
+    cgoal = habitat.goals["scout"].create("Ceiling probe goal", "d" * 40, "c" * 30)
+    cgoal["progress"] = 0.8
+    habitat.goals["scout"].save(cgoal)
+    habitat.llm.json_chat = lambda *a, **k: {
+        "thought": "still reading", "action": "continue",
+        "steps": [{"capability": "fs_list", "args": {"path": "."}}]}
+    for _ in range(3):
+        habitat.run_cycle("scout")
+    habitat.llm.json_chat = real_json_chat
+    nudge = habitat._since_last_cycle("scout")
+    check("ceiling-stuck goals get the write nudge in the digest",
+          any("reading ceiling" in c for c in nudge), str(nudge)[:200])
+    habitat.goals["scout"].abandon(cgoal)
+
     # --- reads can't push a goal into validation ----------------------------
     rgoal = habitat.goals["builder"].create("Read ceiling probe", "d" * 40, "c" * 30)
     for _ in range(12):
