@@ -88,6 +88,10 @@ class Habitat:
         self.completions = {a: 0 for a in AGENT_NAMES}
         self.load_history = {a: [] for a in AGENT_NAMES}  # per-cycle load, panel sparkline
         self.active = None  # {"agent", "since"} while a cycle is executing
+        # cumulative who-read-whom, incrementally tailed from events.jsonl —
+        # a recent-events window under-samples agents whose reads are old
+        self._peer_counts = {}
+        self._peer_offset = 0
         self._stop = threading.Event()
 
     # -- controls (used by the API server) ------------------------------
@@ -146,6 +150,8 @@ class Habitat:
         self.completions = {a: 0 for a in AGENT_NAMES}
         self.load_history = {a: [] for a in AGENT_NAMES}
         self.active = None
+        self._peer_counts = {}
+        self._peer_offset = 0
         for a in AGENT_NAMES:
             self.memory.event(a, "control", "world reset by operator (nuke)")
         self.suspended.clear()
@@ -176,6 +182,35 @@ class Habitat:
         out["_world"] = {"last_ambient": self.last_ambient, "every_rounds": self.world_every}
         out["_activity"] = self.active
         return out
+
+    def peergraph(self) -> dict:
+        """Cumulative reader->author counts over the FULL event history,
+        tailed incrementally so each poll only parses new lines. Partial
+        trailing lines (a write in progress) are left for the next scan."""
+        path = self.memory.dir / "events.jsonl"
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return dict(self._peer_counts)
+        if size < self._peer_offset:  # file replaced (nuke)
+            self._peer_counts, self._peer_offset = {}, 0
+        if size > self._peer_offset:
+            import json as _json
+            with open(path, "r", encoding="utf-8") as f:
+                f.seek(self._peer_offset)
+                chunk = f.read()
+            complete = chunk if chunk.endswith("\n") else chunk[: chunk.rfind("\n") + 1]
+            self._peer_offset += len(complete.encode("utf-8"))
+            for line in complete.splitlines():
+                try:
+                    e = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if e.get("kind") == "peer_read" and " by " in e.get("detail", ""):
+                    author = e["detail"].rsplit(" by ", 1)[1].strip()
+                    key = f"{e.get('agent')}->{author}"
+                    self._peer_counts[key] = self._peer_counts.get(key, 0) + 1
+        return dict(self._peer_counts)
 
     def provoke_world(self) -> str:
         """Operator button: the world does something right now."""

@@ -92,14 +92,7 @@ def make_handler(habitat):
                     })
                 self._send(200, out[:40])
             elif parsed.path == "/peergraph":
-                counts = {}
-                for e in habitat.memory.recent_events(500):
-                    if e.get("kind") != "peer_read" or " by " not in e.get("detail", ""):
-                        continue
-                    author = e["detail"].rsplit(" by ", 1)[1].strip()
-                    key = f"{e['agent']}->{author}"
-                    counts[key] = counts.get(key, 0) + 1
-                self._send(200, counts)
+                self._send(200, habitat.peergraph())
             else:
                 self._send(404, {"error": "unknown endpoint"})
 

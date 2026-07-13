@@ -204,10 +204,7 @@
   #ticker { position: fixed; left: 0; right: 0; bottom: 0; height: 34px; z-index: 4;
             background: #0b0e11f2; border-top: 1px solid var(--edge);
             display: flex; align-items: center; overflow: hidden; }
-  #tickertrack { display: inline-flex; gap: 60px; white-space: nowrap; will-change: transform;
-                 animation: tick 60s linear infinite; padding-left: 100%; }
-  #ticker:hover #tickertrack { animation-play-state: paused; }
-  @keyframes tick { to { transform: translateX(-100%); } }
+  #tickertrack { display: inline-flex; gap: 60px; white-space: nowrap; will-change: transform; }
   #tickertrack span { font-size: 12px; color: var(--dim); cursor: pointer; }
   #tickertrack b { letter-spacing: 1px; }
   /* ==== viewer =========================================================== */
@@ -246,7 +243,7 @@
 <details id="ruleswrap"><summary>RULES OF THE WORLD — promoted lessons</summary><div id="rules"></div></details>
 <div id="vista">
   <div class="pane" id="scenewrap">
-    <h3>THE HOLLOW — artist's impression</h3>
+    <h3>WORKSPACE — artist's impression</h3>
     <svg id="scenesvg" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet"></svg>
     <div id="scenecap"></div>
   </div>
@@ -469,7 +466,9 @@ function updateWorld(w){
   if (document.body.className !== cls) document.body.className = cls;
 }
 
-/* ---- ticker ---- */
+/* ---- ticker: one slow pass per new content, then rest ----------------- */
+const TICKER_SPEED = 45;  // px/s — thoughts arrive minutes apart; amble, don't race
+let tickerAnim = null;
 function updateTicker(s){
   const segs = AGENTS.map(a => {
     const t = (s[a] && s[a].last_thought) || "";
@@ -477,10 +476,17 @@ function updateTicker(s){
       `<b style="color:var(--c-${a})">${a.toUpperCase()}</b> ▸ ${escapeHtml(t)}</span>` : "";
   }).filter(Boolean).join("");
   const track = el("tickertrack");
-  if (track.dataset.content !== segs){
-    track.dataset.content = segs;
-    track.innerHTML = segs || "<span>the habitat is waking…</span>";
-  }
+  if (track.dataset.content === segs) return;   // say it once, then rest
+  track.dataset.content = segs;
+  track.innerHTML = segs || "";
+  if (tickerAnim) tickerAnim.cancel();
+  if (!segs) return;
+  const start = el("ticker").clientWidth;
+  const dist = start + track.scrollWidth;
+  tickerAnim = track.animate(
+    [{ transform: `translateX(${start}px)` }, { transform: `translateX(${-track.scrollWidth}px)` }],
+    { duration: (dist / TICKER_SPEED) * 1000, iterations: 1, easing: "linear", fill: "forwards" }
+  );
 }
 
 /* ---- shelf + rules (lighter cadence) ---- */
@@ -722,6 +728,8 @@ function renderFeed(events){
   }
   if (follow && fresh.length) feed.scrollTop = feed.scrollHeight;
 }
+el("ticker").addEventListener("mouseenter", () => tickerAnim && tickerAnim.pause());
+el("ticker").addEventListener("mouseleave", () => tickerAnim && tickerAnim.play());
 el("feed").addEventListener("scroll", () => {
   const f = el("feed");
   follow = f.scrollTop + f.clientHeight >= f.scrollHeight - 30;
