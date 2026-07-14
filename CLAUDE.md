@@ -143,9 +143,13 @@ full credit to ninjahawk).
 
 ## Operating notes
 
+- **After a deliberate shutdown, read `HANDOFF.md` before resuming** — it holds
+  the last state-of-the-world snapshot and the reasons the run was paused.
 - Run/stop: `.venv/bin/python hollow.py run|stop|status`. State persists
   across restarts (cycle counters currently do not — known issue; a fix may
-  land from a parallel session).
+  land from a parallel session). Do NOT run the habitat inside a preview/dev
+  server for long unattended sessions — that process can be reaped; use a
+  durable `hollow.py run`.
 - Watch live: `thoughts.py`; panel: `panel.py`; poke: `submit_task.py`.
 - When tuning prompts or diagnosing failures, read `memory/llm_log.jsonl`
   (latency, finish_reason, full unusable replies) before guessing.
